@@ -15,6 +15,62 @@ const hParam   Param::NO_PARAM = { 0 };
 
 const hGroup Group::HGROUP_REFERENCES = { 1 };
 
+namespace {
+Quaternion WorkplaneQuaternionForNormal(const Vector &normal, const Vector &preferredU) {
+    Vector n = normal.WithMagnitude(1);
+    Vector u = preferredU.Minus(n.ScaledBy(preferredU.Dot(n)));
+    if(u.Magnitude() < LENGTH_EPS) {
+        u = n.Normal(0);
+    } else {
+        u = u.WithMagnitude(1);
+    }
+    Vector v = n.Cross(u).WithMagnitude(1);
+    return Quaternion::From(u, v);
+}
+
+Vector StableInPlaneAxisForNormal(const Vector &normal) {
+    Vector n = normal.WithMagnitude(1);
+    const Vector axes[] = {
+        Vector::From(1, 0, 0),
+        Vector::From(0, 1, 0),
+        Vector::From(0, 0, 1)
+    };
+
+    int bestAxis = 0;
+    double bestDot = fabs(n.Dot(axes[0]));
+    for(int i = 1; i < 3; i++) {
+        double d = fabs(n.Dot(axes[i]));
+        if(d < bestDot) {
+            bestDot = d;
+            bestAxis = i;
+        }
+    }
+    Vector u = axes[bestAxis].Minus(n.ScaledBy(axes[bestAxis].Dot(n)));
+    if(u.Magnitude() < LENGTH_EPS) {
+        u = n.Normal(0);
+    } else {
+        u = u.WithMagnitude(1);
+    }
+    return u;
+}
+
+double QuaternionDistance(Quaternion a, Quaternion b) {
+    return std::min((a.Minus(b)).Magnitude(), (a.Plus(b)).Magnitude());
+}
+
+Quaternion WorkplaneQuaternionForFace(const Vector &faceNormal,
+                                      const Quaternion &preferredOrientation) {
+    Vector stableAxis = StableInPlaneAxisForNormal(faceNormal);
+    Quaternion qNormal = WorkplaneQuaternionForNormal(faceNormal, stableAxis);
+    Quaternion qFlipped = WorkplaneQuaternionForNormal(faceNormal.ScaledBy(-1), stableAxis);
+    if(QuaternionDistance(qFlipped, preferredOrientation) <
+       QuaternionDistance(qNormal, preferredOrientation)) {
+        return qFlipped;
+    }
+    return qNormal;
+}
+} // namespace
+
 //-----------------------------------------------------------------------------
 // The group structure includes pointers to other dynamically-allocated
 // memory. This clears and frees them all.
@@ -148,10 +204,22 @@ void Group::MenuGroup(Command id, Platform::Path linkFile) {
                 g.predef.entityB = gs.anyNormal[0];
                 g.predef.q      = SK.GetEntity(gs.anyNormal[0])->NormalGetNum();
                 g.predef.origin = gs.point[0];
-            //} else if(gs.faces == 1 && gs.points == 1 && gs.n == 2) {
-            //    g.subtype = Subtype::WORKPLANE_BY_POINT_FACE;
-            //    g.predef.q      = SK.GetEntity(gs.face[0])->NormalGetNum();
-            //    g.predef.origin = gs.point[0];
+            } else if(gs.faces == 1 && gs.n == 1) {
+                Entity *face = SK.GetEntity(gs.face[0]);
+                g.subtype = Subtype::WORKPLANE_BY_POINT_NORMAL;
+                g.predef.entityB = gs.face[0];
+                g.predef.origin = Entity::NO_ENTITY;
+                g.predef.q = WorkplaneQuaternionForFace(face->FaceGetNormalNum(),
+                                                        Quaternion::From(SS.GW.projRight,
+                                                                         SS.GW.projUp));
+            } else if(gs.faces == 1 && gs.points == 1 && gs.n == 2) {
+                Entity *face = SK.GetEntity(gs.face[0]);
+                g.subtype = Subtype::WORKPLANE_BY_POINT_NORMAL;
+                g.predef.entityB = gs.face[0];
+                g.predef.origin = gs.point[0];
+                g.predef.q = WorkplaneQuaternionForFace(face->FaceGetNormalNum(),
+                                                        Quaternion::From(SS.GW.projRight,
+                                                                         SS.GW.projUp));
             } else {
                 Error(_("Bad selection for new sketch in workplane. This "
                         "group can be created with:\n\n"
@@ -160,8 +228,9 @@ void Group::MenuGroup(Command id, Platform::Path linkFile) {
                         "parallel to the lines)\n"
                         "    * a point and a normal (through the point, "
                         "orthogonal to the normal)\n"
-                        /*"    * a point and a face (through the point, "
-                        "parallel to the face)\n"*/
+                        "    * a face (parallel to the face)\n"
+                        "    * a point and a face (through the point, "
+                        "parallel to the face)\n"
                         "    * a workplane (copy of the workplane)\n"));
                 return;
             }
@@ -466,7 +535,23 @@ void Group::Generate(EntityList *entity, ParamList *param)
                 // Already given, numerically.
                 q = predef.q;
             } else if(subtype == Subtype::WORKPLANE_BY_POINT_NORMAL) {
-                q = SK.GetEntity(predef.entityB)->NormalGetNum();
+                Entity *normalOrFace = SK.GetEntity(predef.entityB);
+                if(normalOrFace->IsNormal()) {
+                    q = normalOrFace->NormalGetNum();
+                } else if(normalOrFace->IsFace()) {
+                    Vector preferredU = predef.q.RotationU();
+                    if(preferredU.Magnitude() < LENGTH_EPS) {
+                        preferredU = Vector::From(1, 0, 0);
+                    }
+                    Vector n = normalOrFace->FaceGetNormalNum();
+                    if(n.Dot(predef.q.RotationN()) < 0) {
+                        n = n.ScaledBy(-1);
+                    }
+                    q = WorkplaneQuaternionForNormal(n,
+                                                     preferredU);
+                } else {
+                    ssassert(false, "Unexpected workplane orientation entity");
+                }
             } else ssassert(false, "Unexpected workplane subtype");
 
             Entity normal = {};
@@ -480,7 +565,11 @@ void Group::Generate(EntityList *entity, ParamList *param)
 
             Entity point = {};
             point.type = Entity::Type::POINT_N_COPY;
-            point.numPoint = SK.GetEntity(predef.origin)->PointGetNum();
+            if(predef.origin != Entity::NO_ENTITY) {
+                point.numPoint = SK.GetEntity(predef.origin)->PointGetNum();
+            } else {
+                point.numPoint = SK.GetEntity(predef.entityB)->VectorGetRefPoint();
+            }
             point.construction = true;
             point.group = h;
             point.h = h.entity(2);
