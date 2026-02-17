@@ -8,6 +8,56 @@
 #if defined(_OPENMP)
 #include <omp.h>
 #endif
+#include <cctype>
+#include <cerrno>
+#include <cstdlib>
+
+namespace {
+
+std::string TrimAsciiWhitespace(const std::string &value) {
+    size_t begin = 0;
+    while(begin < value.size() && isspace((unsigned char)value[begin])) {
+        begin++;
+    }
+
+    size_t end = value.size();
+    while(end > begin && isspace((unsigned char)value[end - 1])) {
+        end--;
+    }
+    return value.substr(begin, end - begin);
+}
+
+bool IsNumericLiteralExpression(const std::string &expr) {
+    const std::string trimmed = TrimAsciiWhitespace(expr);
+    if(trimmed.empty()) return false;
+
+    errno = 0;
+    char *endPtr = nullptr;
+    std::strtod(trimmed.c_str(), &endPtr);
+    if(endPtr == trimmed.c_str() || errno == ERANGE) {
+        return false;
+    }
+
+    while(*endPtr != '\0' && isspace((unsigned char)*endPtr)) {
+        endPtr++;
+    }
+    return *endPtr == '\0';
+}
+
+std::vector<std::string> BuildUserParameterSuggestions() {
+    std::vector<std::string> suggestions;
+    suggestions.reserve(SolveSpace::SS.userParameters.size());
+    for(const SolveSpace::SolveSpaceUI::UserParameter &parameter : SolveSpace::SS.userParameters) {
+        if(!parameter.name.empty()) {
+            suggestions.push_back(parameter.name);
+        }
+    }
+    std::sort(suggestions.begin(), suggestions.end());
+    suggestions.erase(std::unique(suggestions.begin(), suggestions.end()), suggestions.end());
+    return suggestions;
+}
+
+} // namespace
 
 namespace SolveSpace {
 
@@ -214,6 +264,65 @@ void TextWindow::ScreenChangeAnimationSpeed(int link, uint32_t v) {
     SS.TW.edit.meaning = Edit::ANIMATION_SPEED;
 }
 
+void TextWindow::ScreenCreateUserParameter(int link, uint32_t v) {
+    std::string base = "param";
+    std::string name;
+    for(int idx = 1;; idx++) {
+        name = base + std::to_string(idx);
+        auto found = std::find_if(SS.userParameters.begin(), SS.userParameters.end(),
+                                  [&](const SolveSpaceUI::UserParameter &parameter) {
+                                      return parameter.name == name;
+                                  });
+        if(found == SS.userParameters.end()) break;
+    }
+
+    SS.UndoRemember();
+    SS.userParameters.push_back({ name, "0" });
+    SS.GenerateAll(SolveSpaceUI::Generate::ALL);
+
+    SS.TW.ShowEditControl(3, name);
+    SS.TW.edit.meaning = Edit::USER_PARAMETER_NAME;
+    SS.TW.edit.i = (int)SS.userParameters.size() - 1;
+}
+
+void TextWindow::ScreenDeleteUserParameter(int link, uint32_t v) {
+    if(v >= SS.userParameters.size()) return;
+
+    auto backup = SS.userParameters;
+    auto candidate = backup;
+    candidate.erase(candidate.begin() + v);
+    SS.userParameters = candidate;
+
+    std::string expressionError;
+    if(!SS.RecomputeConstraintExpressions(&expressionError, /*apply=*/false)) {
+        SS.userParameters = backup;
+        Error("Cannot delete user parameter.\n%s", expressionError.c_str());
+        return;
+    }
+
+    SS.userParameters = backup;
+    SS.UndoRemember();
+    SS.userParameters = candidate;
+    SS.GenerateAll(SolveSpaceUI::Generate::ALL);
+}
+
+void TextWindow::ScreenChangeUserParameterName(int link, uint32_t v) {
+    if(v >= SS.userParameters.size()) return;
+
+    SS.TW.ShowEditControl(3, SS.userParameters[v].name);
+    SS.TW.edit.meaning = Edit::USER_PARAMETER_NAME;
+    SS.TW.edit.i = (int)v;
+}
+
+void TextWindow::ScreenChangeUserParameterExpression(int link, uint32_t v) {
+    if(v >= SS.userParameters.size()) return;
+
+    SS.TW.ShowEditControl(7, SS.userParameters[v].expr);
+    SS.TW.window->SetEditorSuggestions(BuildUserParameterSuggestions());
+    SS.TW.edit.meaning = Edit::USER_PARAMETER_EXPR;
+    SS.TW.edit.i = (int)v;
+}
+
 void TextWindow::ShowConfiguration() {
     int i;
     Printf(true, "%Ft user color (r, g, b)");
@@ -228,6 +337,48 @@ void TextWindow::ShowConfiguration() {
             SS.modelColor[i].blueF(),
             &ScreenChangeColor, i);
     }
+
+    Printf(false, "");
+    Printf(false, "%Ft user parameters%E");
+    if(SS.userParameters.empty()) {
+        Printf(false, "%Ba   none");
+    } else {
+        std::unordered_map<std::string, double> parameterValues;
+        std::string parameterEvaluationError;
+        bool haveParameterValues = SS.EvaluateAllUserParameters(&parameterValues,
+                                                                &parameterEvaluationError);
+
+        for(size_t idx = 0; idx < SS.userParameters.size(); idx++) {
+            const SolveSpaceUI::UserParameter &parameter = SS.userParameters[idx];
+            std::string shownValue = parameter.expr;
+            std::string shownExpression;
+
+            if(haveParameterValues) {
+                auto it = parameterValues.find(parameter.name);
+                if(it != parameterValues.end()) {
+                    shownValue = ssprintf("%.12g", it->second);
+                    if(!IsNumericLiteralExpression(parameter.expr)) {
+                        shownExpression = ssprintf(" (%s)", parameter.expr.c_str());
+                    }
+                }
+            }
+
+            Printf(false,
+                   "%Bp   %Fi%s%E = %Fi%s%s%E  "
+                   "%Fl%Ll%f%D[name]%E  %Fl%Ll%f%D[expr]%E  %Fl%Ll%f%D[delete]%E",
+                   (idx & 1) ? 'd' : 'a',
+                   parameter.name.c_str(),
+                   shownValue.c_str(),
+                   shownExpression.c_str(),
+                   &ScreenChangeUserParameterName, (uint32_t)idx,
+                   &ScreenChangeUserParameterExpression, (uint32_t)idx,
+                   &ScreenDeleteUserParameter, (uint32_t)idx);
+        }
+        if(!haveParameterValues) {
+            Printf(false, "%Ba   evaluation error: %s", parameterEvaluationError.c_str());
+        }
+    }
+    Printf(false, "%Fl%Ll%f[add parameter]%E", &ScreenCreateUserParameter);
 
     Printf(false, "");
     Printf(false, "%Ft chord tolerance (in percents)%E");
@@ -581,6 +732,53 @@ bool TextWindow::EditControlDoneForConfiguration(const std::string &s) {
             } else {
                 SS.animationSpeed = 800;
             }
+            break;
+        }
+        case Edit::USER_PARAMETER_NAME: {
+            if(edit.i < 0 || edit.i >= (int)SS.userParameters.size()) break;
+
+            if(!SS.IsValidUserParameterName(s)) {
+                Error(_("Bad parameter name. Use letters, digits and underscore, and start with a letter or underscore."));
+                break;
+            }
+
+            auto backup = SS.userParameters;
+            auto candidate = backup;
+            candidate[edit.i].name = s;
+            SS.userParameters = candidate;
+
+            std::string expressionError;
+            if(!SS.RecomputeConstraintExpressions(&expressionError, /*apply=*/false)) {
+                SS.userParameters = backup;
+                Error("Cannot rename user parameter.\n%s", expressionError.c_str());
+                break;
+            }
+
+            SS.userParameters = backup;
+            SS.UndoRemember();
+            SS.userParameters = candidate;
+            SS.GenerateAll(SolveSpaceUI::Generate::ALL);
+            break;
+        }
+        case Edit::USER_PARAMETER_EXPR: {
+            if(edit.i < 0 || edit.i >= (int)SS.userParameters.size()) break;
+
+            auto backup = SS.userParameters;
+            auto candidate = backup;
+            candidate[edit.i].expr = s;
+            SS.userParameters = candidate;
+
+            std::string expressionError;
+            if(!SS.RecomputeConstraintExpressions(&expressionError, /*apply=*/false)) {
+                SS.userParameters = backup;
+                Error("Cannot update user parameter expression.\n%s", expressionError.c_str());
+                break;
+            }
+
+            SS.userParameters = backup;
+            SS.UndoRemember();
+            SS.userParameters = candidate;
+            SS.GenerateAll(SolveSpaceUI::Generate::ALL);
             break;
         }
 

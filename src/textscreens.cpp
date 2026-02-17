@@ -730,6 +730,8 @@ void TextWindow::ScreenStepDimGo(int link, uint32_t v) {
         SS.TW.stepDim.timer->onTimeout = [=] {
             if(SS.TW.stepDim.step <= SS.TW.stepDim.steps) {
                 c->valA = start + ((finish - start)*SS.TW.stepDim.step)/SS.TW.stepDim.steps;
+                c->valAExpr.clear();
+                c->valAExprNegate = false;
                 SS.MarkGroupDirty(c->group);
                 SS.GenerateAll();
                 if(!SS.ActiveGroupsOkay()) {
@@ -938,15 +940,22 @@ void TextWindow::EditControlDone(std::string s) {
             }
             break;
 
-        case Edit::STEP_DIM_FINISH:
-            if(Expr *e = Expr::From(s, /*popUpError=*/true)) {
+        case Edit::STEP_DIM_FINISH: {
+            double stepValue;
+            std::string expressionError;
+            if(SS.EvaluateExpressionWithUserParameters(s, /*values=*/nullptr,
+                                                       &stepValue, &expressionError)) {
                 if(stepDim.isDistance) {
-                    stepDim.finish = SS.ExprToMm(e);
+                    stepDim.finish = stepValue * SS.MmPerUnit();
                 } else {
-                    stepDim.finish = e->Eval();
+                    stepDim.finish = stepValue;
                 }
+            } else {
+                Error("Not a valid number or expression: '%s'.\n%s.",
+                      s.c_str(), expressionError.c_str());
             }
             break;
+        }
 
         case Edit::STEP_DIM_STEPS:
             stepDim.steps = min(300, max(1, atoi(s.c_str())));

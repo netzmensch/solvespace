@@ -1125,6 +1125,10 @@ public:
         gtkWindow.get_editor_overlay().stop_editing();
     }
 
+    void SetEditorSuggestions(const std::vector<std::string> &suggestions) override {
+        // Not implemented for GTK editor.
+    }
+
     void SetScrollbarVisible(bool visible) override {
         if(visible) {
             gtkWindow.get_scrollbar().show();

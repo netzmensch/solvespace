@@ -705,6 +705,8 @@ public:
 
     // These are the parameters for the constraint.
     double      valA;
+    std::string valAExpr;
+    bool        valAExprNegate;
     hParam      valP;
     hEntity     ptA;
     hEntity     ptB;
@@ -720,7 +722,9 @@ public:
 
     bool Equals(const ConstraintBase &c) const {
         return type == c.type && group == c.group && workplane == c.workplane &&
-            valA == c.valA && valP == c.valP && ptA == c.ptA && ptB == c.ptB &&
+            valA == c.valA && valAExpr == c.valAExpr &&
+            valAExprNegate == c.valAExprNegate &&
+            valP == c.valP && ptA == c.ptA && ptB == c.ptB &&
             entityA == c.entityA && entityB == c.entityB &&
             entityC == c.entityC && entityD == c.entityD &&
             other == c.other && other2 == c.other2 && reference == c.reference &&

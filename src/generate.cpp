@@ -155,6 +155,13 @@ void SolveSpaceUI::GenerateAll(Generate type, bool andFindFree, bool genForBBox)
     uint64_t startMillis = GetMilliseconds(),
              endMillis;
 
+    std::string expressionError;
+    if(!RecomputeConstraintExpressions(&expressionError)) {
+        Error("Failed to evaluate expressions: %s", expressionError.c_str());
+        Platform::FreeAllTemporary();
+        return;
+    }
+
     SK.groupOrder.Clear();
     for(auto &g : SK.group) { SK.groupOrder.Add(&g.h); }
     std::sort(SK.groupOrder.begin(), SK.groupOrder.end(),

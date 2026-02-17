@@ -1382,6 +1382,20 @@ void GraphicsWindow::EditConstraint(hConstraint constraint) {
         return;
     }
 
+    std::vector<std::string> editorSuggestions;
+    if(c->type != Constraint::Type::COMMENT) {
+        editorSuggestions.reserve(SS.userParameters.size());
+        for(const SolveSpaceUI::UserParameter &parameter : SS.userParameters) {
+            if(!parameter.name.empty()) {
+                editorSuggestions.push_back(parameter.name);
+            }
+        }
+        std::sort(editorSuggestions.begin(), editorSuggestions.end());
+        editorSuggestions.erase(std::unique(editorSuggestions.begin(), editorSuggestions.end()),
+                                editorSuggestions.end());
+    }
+    window->SetEditorSuggestions(editorSuggestions);
+
     Vector p3 = c->GetLabelPos(GetCamera());
     Point2d p2 = ProjectPoint(p3);
 
@@ -1394,6 +1408,12 @@ void GraphicsWindow::EditConstraint(hConstraint constraint) {
             break;
 
         default: {
+            if(!c->valAExpr.empty()) {
+                editValue = c->valAExpr;
+                editPlaceholder = "parameter_name + 10";
+                break;
+            }
+
             double value = fabs(c->valA);
 
             // If displayed as radius, also edit as radius.
@@ -1454,53 +1474,56 @@ void GraphicsWindow::EditControlDone(const std::string &s) {
         return;
     }
 
-    if(Expr *e = Expr::From(s, true)) {
-        SS.UndoRemember();
-
-        switch(c->type) {
-            case Constraint::Type::PROJ_PT_DISTANCE:
-            case Constraint::Type::PT_LINE_DISTANCE:
-            case Constraint::Type::PT_FACE_DISTANCE:
-            case Constraint::Type::PT_PLANE_DISTANCE:
-            case Constraint::Type::LENGTH_DIFFERENCE:
-            case Constraint::Type::ARC_ARC_DIFFERENCE:
-            case Constraint::Type::ARC_LINE_DIFFERENCE: {
-                // The sign is not displayed to the user, but this is a signed
-                // distance internally. To flip the sign, the user enters a
-                // negative distance.
-                bool wasNeg = (c->valA < 0);
-                if(wasNeg) {
-                    c->valA = -SS.ExprToMm(e);
-                } else {
-                    c->valA = SS.ExprToMm(e);
-                }
-                break;
-            }
-            case Constraint::Type::ANGLE:
-            case Constraint::Type::LENGTH_RATIO:
-            case Constraint::Type::ARC_ARC_LEN_RATIO:
-            case Constraint::Type::ARC_LINE_LEN_RATIO:
-                // These don't get the units conversion for distance, and
-                // they're always positive
-                c->valA = fabs(e->Eval());
-                break;
-
-            case Constraint::Type::DIAMETER:
-                c->valA = fabs(SS.ExprToMm(e));
-
-                // If displayed and edited as radius, convert back
-                // to diameter
-                if(c->other)
-                    c->valA *= 2;
-                break;
-
-            default:
-                // These are always positive, and they get the units conversion.
-                c->valA = fabs(SS.ExprToMm(e));
-                break;
-        }
-        SS.MarkGroupDirty(c->group);
+    std::string expressionError;
+    double expressionValue = 0;
+    if(!SS.EvaluateExpressionWithUserParameters(s, /*values=*/nullptr,
+                                                &expressionValue, &expressionError)) {
+        Error("Not a valid number or expression: '%s'.\n%s.",
+              s.c_str(), expressionError.c_str());
+        return;
     }
+
+    SS.UndoRemember();
+    bool hadExpression = !c->valAExpr.empty();
+    bool previousNegate = c->valAExprNegate;
+    c->valAExpr = s;
+    c->valAExprNegate = false;
+
+    switch(c->type) {
+        case Constraint::Type::PROJ_PT_DISTANCE:
+        case Constraint::Type::PT_LINE_DISTANCE:
+        case Constraint::Type::PT_FACE_DISTANCE:
+        case Constraint::Type::PT_PLANE_DISTANCE:
+        case Constraint::Type::LENGTH_DIFFERENCE:
+        case Constraint::Type::ARC_ARC_DIFFERENCE:
+        case Constraint::Type::ARC_LINE_DIFFERENCE: {
+            // Keep the signed-distance convention for future reevaluations.
+            c->valAExprNegate = hadExpression ? previousNegate : (c->valA < 0);
+            double valMm = expressionValue * SS.MmPerUnit();
+            c->valA = c->valAExprNegate ? -valMm : valMm;
+            break;
+        }
+
+        case Constraint::Type::ANGLE:
+        case Constraint::Type::LENGTH_RATIO:
+        case Constraint::Type::ARC_ARC_LEN_RATIO:
+        case Constraint::Type::ARC_LINE_LEN_RATIO:
+            c->valA = fabs(expressionValue);
+            break;
+
+        case Constraint::Type::DIAMETER:
+            c->valA = fabs(expressionValue * SS.MmPerUnit());
+            if(c->other) {
+                c->valA *= 2;
+            }
+            break;
+
+        default:
+            c->valA = fabs(expressionValue * SS.MmPerUnit());
+            break;
+    }
+
+    SS.MarkGroupDirty(c->group);
 }
 
 void GraphicsWindow::MouseScroll(double zoomMultiplyer) {

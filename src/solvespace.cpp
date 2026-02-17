@@ -7,6 +7,9 @@
 #include "solvespace.h"
 #include "config.h"
 
+#include <cctype>
+#include <unordered_set>
+
 namespace SolveSpace {
 
 SolveSpaceUI SS = {};
@@ -487,6 +490,212 @@ std::string SolveSpaceUI::DegreeToString(double v) {
         return ssprintf("%.0f", v);
     }
 }
+
+bool SolveSpaceUI::IsValidUserParameterName(const std::string &name) const {
+    if(name.empty()) return false;
+
+    const unsigned char first = (unsigned char)name[0];
+    if(!(isalpha(first) || first == '_')) return false;
+
+    for(char c : name) {
+        unsigned char uc = (unsigned char)c;
+        if(!(isalnum(uc) || c == '_')) return false;
+    }
+
+    static const std::unordered_set<std::string> kReservedNames = {
+        "sqrt", "square", "sin", "cos", "asin", "acos", "pi"
+    };
+    if(kReservedNames.find(name) != kReservedNames.end()) return false;
+
+    return true;
+}
+
+bool SolveSpaceUI::EvaluateAllUserParameters(std::unordered_map<std::string, double> *values,
+                                             std::string *error) const {
+    values->clear();
+
+    std::unordered_map<std::string, const UserParameter *> byName;
+    byName.reserve(userParameters.size());
+    for(const UserParameter &parameter : userParameters) {
+        if(!IsValidUserParameterName(parameter.name)) {
+            if(error) {
+                *error = ssprintf("'%s' is not a valid user parameter name",
+                                  parameter.name.c_str());
+            }
+            return false;
+        }
+        if(byName.find(parameter.name) != byName.end()) {
+            if(error) {
+                *error = ssprintf("User parameter '%s' is defined multiple times",
+                                  parameter.name.c_str());
+            }
+            return false;
+        }
+        byName.insert({ parameter.name, &parameter });
+    }
+
+    std::unordered_set<std::string> visiting;
+    std::function<bool(const std::string &, double *)> resolveParameter =
+        [&](const std::string &name, double *resolvedValue) -> bool {
+            auto existing = values->find(name);
+            if(existing != values->end()) {
+                *resolvedValue = existing->second;
+                return true;
+            }
+
+            auto parameterIt = byName.find(name);
+            if(parameterIt == byName.end()) {
+                return false;
+            }
+
+            if(visiting.find(name) != visiting.end()) {
+                if(error) {
+                    *error = ssprintf("Cyclic dependency detected for user parameter '%s'",
+                                      name.c_str());
+                }
+                return false;
+            }
+
+            visiting.insert(name);
+            std::string parseError;
+            Expr *expr = Expr::Parse(parameterIt->second->expr, &parseError,
+                                     &resolveParameter);
+            if(!expr) {
+                visiting.erase(name);
+                if(error) {
+                    *error = ssprintf("Failed to evaluate user parameter '%s': %s",
+                                      name.c_str(), parseError.c_str());
+                }
+                return false;
+            }
+
+            double value = expr->Eval();
+            visiting.erase(name);
+            (*values)[name] = value;
+            *resolvedValue = value;
+            return true;
+        };
+
+    for(const UserParameter &parameter : userParameters) {
+        double value = 0;
+        if(!resolveParameter(parameter.name, &value)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool SolveSpaceUI::EvaluateExpressionWithUserParameters(
+    const std::string &input,
+    const std::unordered_map<std::string, double> *values,
+    double *result,
+    std::string *error) const
+{
+    std::unordered_map<std::string, double> localValues;
+    if(values == nullptr) {
+        if(!EvaluateAllUserParameters(&localValues, error)) return false;
+        values = &localValues;
+    }
+
+    ExprVariableResolver resolver = [&](const std::string &name, double *resolvedValue) {
+        auto it = values->find(name);
+        if(it == values->end()) return false;
+        *resolvedValue = it->second;
+        return true;
+    };
+
+    std::string parseError;
+    Expr *expr = Expr::Parse(input, &parseError, &resolver);
+    if(!expr) {
+        if(error) *error = parseError;
+        return false;
+    }
+
+    *result = expr->Eval();
+    return true;
+}
+
+static bool IsSignedDistanceConstraint(Constraint::Type type) {
+    switch(type) {
+        case Constraint::Type::PROJ_PT_DISTANCE:
+        case Constraint::Type::PT_LINE_DISTANCE:
+        case Constraint::Type::PT_FACE_DISTANCE:
+        case Constraint::Type::PT_PLANE_DISTANCE:
+        case Constraint::Type::LENGTH_DIFFERENCE:
+        case Constraint::Type::ARC_ARC_DIFFERENCE:
+        case Constraint::Type::ARC_LINE_DIFFERENCE:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+bool SolveSpaceUI::RecomputeConstraintExpressions(std::string *error, bool apply) {
+    std::unordered_map<std::string, double> userParamValues;
+    if(!EvaluateAllUserParameters(&userParamValues, error)) {
+        return false;
+    }
+
+    std::vector<std::pair<hConstraint, double>> computedValues;
+    computedValues.reserve(SK.constraint.n);
+
+    for(const Constraint &constraint : SK.constraint) {
+        if(constraint.reference || constraint.valAExpr.empty()) continue;
+
+        double expressionValue = 0;
+        std::string evaluateError;
+        if(!EvaluateExpressionWithUserParameters(constraint.valAExpr,
+                                                 &userParamValues,
+                                                 &expressionValue,
+                                                 &evaluateError)) {
+            if(error) {
+                *error = ssprintf("Constraint c%03x: %s",
+                                  constraint.h.v, evaluateError.c_str());
+            }
+            return false;
+        }
+
+        double valA = 0;
+        if(IsSignedDistanceConstraint(constraint.type)) {
+            double valMm = expressionValue * MmPerUnit();
+            valA = constraint.valAExprNegate ? -valMm : valMm;
+            computedValues.push_back({ constraint.h, valA });
+            continue;
+        }
+
+        switch(constraint.type) {
+            case Constraint::Type::ANGLE:
+            case Constraint::Type::LENGTH_RATIO:
+            case Constraint::Type::ARC_ARC_LEN_RATIO:
+            case Constraint::Type::ARC_LINE_LEN_RATIO:
+                valA = fabs(expressionValue);
+                break;
+
+            case Constraint::Type::DIAMETER:
+                valA = fabs(expressionValue * MmPerUnit());
+                if(constraint.other) {
+                    valA *= 2;
+                }
+                break;
+
+            default:
+                valA = fabs(expressionValue * MmPerUnit());
+                break;
+        }
+        computedValues.push_back({ constraint.h, valA });
+    }
+
+    if(apply) {
+        for(const auto &entry : computedValues) {
+            SK.GetConstraint(entry.first)->valA = entry.second;
+        }
+    }
+
+    return true;
+}
+
 double SolveSpaceUI::ExprToMm(Expr *e) {
     return (e->Eval()) * MmPerUnit();
 }
@@ -1130,6 +1339,7 @@ PACKAGE_VERSION, 2026);
 
 void SolveSpaceUI::Clear() {
     sys.Clear();
+    userParameters.clear();
     for(int i = 0; i < MAX_UNDO; i++) {
         if(i < undo.cnt) undo.d[i].Clear();
         if(i < redo.cnt) redo.d[i].Clear();

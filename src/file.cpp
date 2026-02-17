@@ -35,6 +35,7 @@ void SolveSpaceUI::ClearExisting() {
 
     SK.entity.Clear();
     SK.param.Clear();
+    userParameters.clear();
     images.clear();
 }
 
@@ -176,6 +177,8 @@ const SolveSpaceUI::SaveTable SolveSpaceUI::SAVED[] = {
     { 'c',  "Constraint.group.v",       'x',    &(SS.sv.c.group.v)            },
     { 'c',  "Constraint.workplane.v",   'x',    &(SS.sv.c.workplane.v)        },
     { 'c',  "Constraint.valA",          'f',    &(SS.sv.c.valA)               },
+    { 'c',  "Constraint.valAExpr",      'S',    &(SS.sv.c.valAExpr)           },
+    { 'c',  "Constraint.valAExprNegate",'b',    &(SS.sv.c.valAExprNegate)     },
     { 'c',  "Constraint.valP.v",        'x',    &(SS.sv.c.valP.v)             },
     { 'c',  "Constraint.ptA.v",         'x',    &(SS.sv.c.ptA.v)              },
     { 'c',  "Constraint.ptB.v",         'x',    &(SS.sv.c.ptB.v)              },
@@ -207,6 +210,9 @@ const SolveSpaceUI::SaveTable SolveSpaceUI::SAVED[] = {
     { 's',  "Style.exportable",         'b',    &(SS.sv.s.exportable)         },
     { 's',  "Style.stippleType",        'd',    &(SS.sv.s.stippleType)        },
     { 's',  "Style.stippleScale",       'f',    &(SS.sv.s.stippleScale)       },
+
+    { 'u',  "UserParameter.name",       'S',    &(SS.sv.u.name)               },
+    { 'u',  "UserParameter.expr",       'S',    &(SS.sv.u.expr)               },
 
     { 0, NULL, 0, NULL }
 };
@@ -337,6 +343,12 @@ bool SolveSpaceUI::SaveToFile(const Platform::Path &filename) {
         sv.c = c;
         SaveUsingTable(filename, 'c');
         fprintf(fh, "AddConstraint\n\n");
+    }
+
+    for(auto &u : userParameters) {
+        sv.u = u;
+        SaveUsingTable(filename, 'u');
+        fprintf(fh, "AddUserParameter\n\n");
     }
 
     for(auto &s : SK.style) {
@@ -529,6 +541,9 @@ bool SolveSpaceUI::LoadFromFile(const Platform::Path &filename, bool canCancel) 
         } else if(strcmp(line, "AddConstraint")==0) {
             SK.constraint.Add(&(sv.c));
             sv.c = {};
+        } else if(strcmp(line, "AddUserParameter")==0) {
+            userParameters.push_back(sv.u);
+            sv.u = {};
         } else if(strcmp(line, "AddStyle")==0) {
             SK.style.Add(&(sv.s));
             sv.s = {};
