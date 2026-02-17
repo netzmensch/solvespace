@@ -37,21 +37,29 @@ void GraphicsWindow::Selection::Draw(bool isHovered, Canvas *canvas) {
 
     std::vector<Vector> refs;
     if(entity.v) {
-        Entity *e = SK.GetEntity(entity);
-        e->Draw(isHovered ? Entity::DrawAs::HOVERED :
-                            Entity::DrawAs::SELECTED,
-                canvas);
-        if(emphasized) {
-            e->GetReferencePoints(&refs);
+        Entity *e = SK.entity.FindByIdNoOops(entity);
+        if(e != nullptr) {
+            e->Draw(isHovered ? Entity::DrawAs::HOVERED :
+                                Entity::DrawAs::SELECTED,
+                    canvas);
+            if(emphasized) {
+                e->GetReferencePoints(&refs);
+            }
+        } else {
+            entity.v = 0;
         }
     }
     if(constraint.v) {
-        Constraint *c = SK.GetConstraint(constraint);
-        c->Draw(isHovered ? Constraint::DrawAs::HOVERED :
-                            Constraint::DrawAs::SELECTED,
-                canvas);
-        if(emphasized) {
-            c->GetReferencePoints(camera, &refs);
+        Constraint *c = SK.constraint.FindByIdNoOops(constraint);
+        if(c != nullptr) {
+            c->Draw(isHovered ? Constraint::DrawAs::HOVERED :
+                                Constraint::DrawAs::SELECTED,
+                    canvas);
+            if(emphasized) {
+                c->GetReferencePoints(camera, &refs);
+            }
+        } else {
+            constraint.v = 0;
         }
     }
     if(emphasized && (constraint.v || entity.v)) {
@@ -184,8 +192,12 @@ void GraphicsWindow::MakeSelected(hConstraint hc) {
 void GraphicsWindow::MakeSelected(Selection *stog) {
     if(stog->IsEmpty()) return;
     if(IsSelected(stog)) return;
+    if(stog->entity.v != 0 && SK.entity.FindByIdNoOops(stog->entity) == nullptr) return;
+    if(stog->constraint.v != 0 &&
+       SK.constraint.FindByIdNoOops(stog->constraint) == nullptr) return;
 
-    if(stog->entity.v != 0 && SK.GetEntity(stog->entity)->IsFace()) {
+    Entity *toSelect = (stog->entity.v != 0) ? SK.entity.FindByIdNoOops(stog->entity) : nullptr;
+    if(toSelect != nullptr && toSelect->IsFace()) {
         // In the interest of speed for the triangle drawing code,
         // only MAX_SELECTABLE_FACES faces may be selected at a time.
         unsigned int c = 0;
@@ -193,7 +205,8 @@ void GraphicsWindow::MakeSelected(Selection *stog) {
         selection.ClearTags();
         for(s = selection.First(); s; s = selection.NextAfter(s)) {
             hEntity he = s->entity;
-            if(he.v != 0 && SK.GetEntity(he)->IsFace()) {
+            Entity *face = (he.v != 0) ? SK.entity.FindByIdNoOops(he) : nullptr;
+            if(face != nullptr && face->IsFace()) {
                 c++;
                 // See also GraphicsWindow::GroupSelection "if(e->IsFace())"
                 // and Group::DrawMesh "case DrawMeshAs::SELECTED:"
@@ -253,9 +266,9 @@ void GraphicsWindow::GroupSelection() {
     for(i = 0; i < selection.n; i++) {
         Selection *s = &(selection[i]);
         if(s->entity.v) {
+            Entity *e = SK.entity.FindByIdNoOops(s->entity);
+            if(e == nullptr) continue;
             (gs.n)++;
-
-            Entity *e = SK.entity.FindById(s->entity);
 
             if(e->IsStylable()) gs.stylables++;
 

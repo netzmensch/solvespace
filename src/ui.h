@@ -152,6 +152,7 @@ enum class Command : uint32_t {
     GROUP_WRKPL,
     GROUP_EXTRUDE,
     GROUP_HELIX,
+    GROUP_THREAD,
     GROUP_LATHE,
     GROUP_REVOLVE,
     GROUP_ROT,
@@ -372,7 +373,9 @@ public:
         // For tangent arc
         TANGENT_ARC_RADIUS    = 800,
         // For helix pitch
-        HELIX_PITCH           = 802
+        HELIX_PITCH           = 802,
+        // For thread parameters
+        THREAD_PARAMETER      = 803
     };
     struct {
         bool        showAgain;
@@ -508,6 +511,7 @@ public:
     static void ScreenChangeGroupName(int link, uint32_t v);
     static void ScreenChangeGroupScale(int link, uint32_t v);
     static void ScreenChangeHelixPitch(int link, uint32_t v);
+    static void ScreenChangeThreadParameter(int link, uint32_t v);
     static void ScreenChangePitchOption(int link, uint32_t v);
     static void ScreenChangeLightDirection(int link, uint32_t v);
     static void ScreenChangeLightIntensity(int link, uint32_t v);

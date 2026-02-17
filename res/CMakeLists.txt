@@ -260,6 +260,7 @@ add_resources(
     icons/graphics-window/symmetric.png
     icons/graphics-window/tangent-arc.png
     icons/graphics-window/text.png
+    icons/graphics-window/thread.png
     icons/graphics-window/trim.png
     icons/graphics-window/vert.png
     icons/text-window/constraint.png

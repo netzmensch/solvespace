@@ -9,6 +9,7 @@
 #define SOLVESPACE_SKETCH_H
 
 #include <cstdint>
+#include <array>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -184,6 +185,7 @@ public:
         LATHE                         = 5101,
         REVOLVE                       = 5102,
         HELIX                         = 5103,
+        THREAD                        = 5104,
         ROTATE                        = 5200,
         TRANSLATE                     = 5201,
         LINKED                        = 5300
@@ -208,6 +210,7 @@ public:
     double      valA;
     double      valB;
     double      valC;
+    std::array<std::string, 9> threadParamExpr;
     RgbaColor   color;
 
     struct {
@@ -332,6 +335,14 @@ public:
     size_t GetNumConstraints();
     Vector ExtrusionGetVector();
     void ExtrusionForceVectorTo(const Vector &v);
+    std::string &ThreadParamExpression(int paramIndex) {
+        ssassert(paramIndex >= 6 && paramIndex <= 14, "Invalid thread parameter index");
+        return threadParamExpr[paramIndex - 6];
+    }
+    const std::string &ThreadParamExpression(int paramIndex) const {
+        ssassert(paramIndex >= 6 && paramIndex <= 14, "Invalid thread parameter index");
+        return threadParamExpr[paramIndex - 6];
+    }
 
     // Assembling the curves into loops, and into a piecewise linear polygon
     // at the same time.

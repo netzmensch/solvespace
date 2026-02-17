@@ -161,6 +161,11 @@ void SolveSpaceUI::GenerateAll(Generate type, bool andFindFree, bool genForBBox)
         Platform::FreeAllTemporary();
         return;
     }
+    if(!RecomputeThreadParameterExpressions(&expressionError)) {
+        Error("Failed to evaluate thread expressions: %s", expressionError.c_str());
+        Platform::FreeAllTemporary();
+        return;
+    }
 
     SK.groupOrder.Clear();
     for(auto &g : SK.group) { SK.groupOrder.Add(&g.h); }
