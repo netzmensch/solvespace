@@ -12,9 +12,9 @@ BEGIN
         BLOCK "04090000"
         BEGIN
             VALUE "CompanyName",      "The SolveSpace authors"
-            VALUE "ProductName",      "SolveSpace"
+            VALUE "ProductName",      "SolveSpaceNitro"
             VALUE "ProductVersion",   "${PROJECT_VERSION}~${solvespace_GIT_HASH}"
-            VALUE "FileDescription",  "SolveSpace, a parametric 2d/3d CAD"
+            VALUE "FileDescription",  "SolveSpaceNitro, a parametric 2d/3d CAD"
             VALUE "FileVersion",      "${PROJECT_VERSION}~${solvespace_GIT_HASH}"
             VALUE "OriginalFilename", "solvespace.exe"
             VALUE "InternalName",     "solvespace"

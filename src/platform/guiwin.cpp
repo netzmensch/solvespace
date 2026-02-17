@@ -130,7 +130,7 @@ BOOL ssAdjustWindowRectExForDpi(LPRECT lpRect, DWORD dwStyle, BOOL bMenu,
 //-----------------------------------------------------------------------------
 
 static std::wstring PrepareTitle(const std::string &s) {
-    return Widen("SolveSpace - " + s);
+    return Widen("SolveSpaceNitro - " + s);
 }
 
 static std::string NegateMnemonics(const std::string &label) {
@@ -169,7 +169,7 @@ void FatalError(const std::string &message) {
     handlingFatalError = true;
 
     switch(MessageBoxW(NULL, Platform::Widen(message + "\nGenerate debug report?").c_str(),
-                       L"Fatal error — SolveSpace",
+                       L"Fatal error — SolveSpaceNitro",
                        MB_ICONERROR|MB_TASKMODAL|MB_SETFOREGROUND|MB_TOPMOST|
                        MB_OKCANCEL|MB_DEFBUTTON2)) {
         case IDOK:
@@ -194,7 +194,7 @@ public:
 
     HKEY GetKey() {
         if(hKey == NULL) {
-            sscheck(ERROR_SUCCESS == RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\SolveSpace", 0, NULL, 0,
+            sscheck(ERROR_SUCCESS == RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\SolveSpaceNitro", 0, NULL, 0,
                                     KEY_ALL_ACCESS, NULL, &hKey, NULL));
         }
         return hKey;
@@ -559,7 +559,7 @@ public:
         wc.hIconSm       = (HICON)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(4000),
                                             IMAGE_ICON, 16, 16, 0);
         wc.hCursor       = LoadCursorW(NULL, IDC_ARROW);
-        wc.lpszClassName = L"SolveSpace";
+        wc.lpszClassName = L"SolveSpaceNitro";
         sscheck(RegisterClassExW(&wc));
         registered = true;
     }
@@ -584,7 +584,7 @@ public:
                 style |= WS_POPUPWINDOW|WS_CAPTION;
                 break;
         }
-        sscheck(hWindow = CreateWindowExW(0, L"SolveSpace", L"", style,
+        sscheck(hWindow = CreateWindowExW(0, L"SolveSpaceNitro", L"", style,
                                           CW_USEDEFAULT, CW_USEDEFAULT,
                                           CW_USEDEFAULT, CW_USEDEFAULT,
                                           hParentWindow, NULL, NULL, NULL));
@@ -1449,7 +1449,7 @@ void Request3DConnexionEventsForWindow(WindowRef window) {
         std::static_pointer_cast<WindowImplWin32>(window);
     if(hSpaceWareDriverClass != NULL) {
         SiOpenWinInit(&windowImpl->sod, windowImpl->hWindow);
-        windowImpl->hSpaceWare = SiOpen("SolveSpace", SI_ANY_DEVICE, SI_NO_MASK, SI_EVENT,
+        windowImpl->hSpaceWare = SiOpen("SolveSpaceNitro", SI_ANY_DEVICE, SI_NO_MASK, SI_EVENT,
                                         &windowImpl->sod);
         SiSetUiMode(windowImpl->hSpaceWare, SI_UI_NO_CONTROLS);
     }

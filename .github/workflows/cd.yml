@@ -148,7 +148,7 @@ jobs:
       uses: actions/upload-artifact@v6
       with:
         name: macos
-        path: build/bin/SolveSpace.dmg
+        path: build/bin/SolveSpaceNitro.dmg
 
   build_release_web:
     needs: [test_ubuntu, test_windows, test_macos]
@@ -227,4 +227,4 @@ jobs:
           windows_x86/solvespace_x86.exe
           windows_single_core_x64/solvespace_single_core_x64.exe
           windows_x64/solvespace_x64.exe
-          macos/SolveSpace.dmg
+          macos/SolveSpaceNitro.dmg
