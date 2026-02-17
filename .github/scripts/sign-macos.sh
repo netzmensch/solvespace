@@ -1,32 +1,40 @@
 #!/bin/bash -xe
 
-lipo \
-    -create \
-        build/bin/SolveSpace.app/Contents/Resources/libomp.dylib \
-        build-arm64/bin/SolveSpace.app/Contents/Resources/libomp.dylib \
-    -output \
-        build/bin/SolveSpace.app/Contents/Resources/libomp.dylib
+APP_BASE_NAME="SolveSpace"
+if [ -d "build/bin/SolveSpaceNitro.app" ]; then
+    APP_BASE_NAME="SolveSpaceNitro"
+fi
 
 lipo \
     -create \
-        build/bin/SolveSpace.app/Contents/MacOS/SolveSpace \
-        build-arm64/bin/SolveSpace.app/Contents/MacOS/SolveSpace \
+        build/bin/${APP_BASE_NAME}.app/Contents/Resources/libomp.dylib \
+        build-arm64/bin/${APP_BASE_NAME}.app/Contents/Resources/libomp.dylib \
     -output \
-        build/bin/SolveSpace.app/Contents/MacOS/SolveSpace
+        build/bin/${APP_BASE_NAME}.app/Contents/Resources/libomp.dylib
 
 lipo \
     -create \
-        build/bin/SolveSpace.app/Contents/MacOS/solvespace-cli \
-        build-arm64/bin/SolveSpace.app/Contents/MacOS/solvespace-cli \
+        build/bin/${APP_BASE_NAME}.app/Contents/MacOS/${APP_BASE_NAME} \
+        build-arm64/bin/${APP_BASE_NAME}.app/Contents/MacOS/${APP_BASE_NAME} \
     -output \
-        build/bin/SolveSpace.app/Contents/MacOS/solvespace-cli
+        build/bin/${APP_BASE_NAME}.app/Contents/MacOS/${APP_BASE_NAME}
+
+lipo \
+    -create \
+        build/bin/${APP_BASE_NAME}.app/Contents/MacOS/solvespace-cli \
+        build-arm64/bin/${APP_BASE_NAME}.app/Contents/MacOS/solvespace-cli \
+    -output \
+        build/bin/${APP_BASE_NAME}.app/Contents/MacOS/solvespace-cli
+
+rm -rf build/bin/SolveSpaceNitro.app
+cp -R build/bin/${APP_BASE_NAME}.app build/bin/SolveSpaceNitro.app
 
 cd build
 
-openmp="bin/SolveSpace.app/Contents/Resources/libomp.dylib"
-app="bin/SolveSpace.app"
-dmg="bin/SolveSpace.dmg"
-bundle_id="com.solvespace.solvespace"
+openmp="bin/SolveSpaceNitro.app/Contents/Resources/libomp.dylib"
+app="bin/SolveSpaceNitro.app"
+dmg="bin/SolveSpaceNitro.dmg"
+bundle_id="com.solvespace.nitro"
 
 if [ "$CI" = "true" ]; then
     # get the signing certificate (this is the Developer ID:Application: Your Name, exported to a p12 file, then converted to base64, e.g.: cat ~/Desktop/certificate.p12 | base64 | pbcopy)
@@ -80,7 +88,6 @@ if [ $? -eq 0 ]; then
     echo "Notarization failed. Error: $notarization_output"
     exit 1
   fi
-fi
 
 # staple
 xcrun stapler staple "${dmg}"

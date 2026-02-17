@@ -230,7 +230,7 @@ class SettingsImplQt final : public Settings {
 public:
     QSettings qset;
 
-    SettingsImplQt() : qset("SolveSpace", "solvespace") {
+    SettingsImplQt() : qset("SolveSpaceNitro", "solvespace-nitro") {
     }
 
     void FreezeInt(const std::string& key, uint32_t value) override {

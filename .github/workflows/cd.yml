@@ -148,7 +148,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: macos
-        path: build/bin/SolveSpace.dmg
+        path: build/bin/SolveSpaceNitro.dmg
 
   build_release_web:
     needs: [test_ubuntu, test_windows, test_macos]
@@ -216,7 +216,7 @@ jobs:
         upload_url=$(echo "$event" | jq -r ".release.upload_url")
         echo "::set-output name=upload_url::$upload_url"
         echo "Upload URL: $upload_url"
-    - name: Upload solvespace.exe
+    - name: Upload SolveSpaceNitro.exe
       uses: actions/upload-release-asset@v1
       continue-on-error: true
       env:
@@ -224,9 +224,9 @@ jobs:
       with:
         upload_url: ${{ steps.get_upload_url.outputs.upload_url }}
         asset_path: windows/solvespace.exe
-        asset_name: solvespace.exe
+        asset_name: SolveSpaceNitro.exe
         asset_content_type: binary/octet-stream
-    - name: Upload solvespace_single_core.exe
+    - name: Upload SolveSpaceNitro_single_core.exe
       uses: actions/upload-release-asset@v1
       continue-on-error: true
       env:
@@ -234,9 +234,9 @@ jobs:
       with:
         upload_url: ${{ steps.get_upload_url.outputs.upload_url }}
         asset_path: windows-openmp/solvespace_single_core.exe
-        asset_name: solvespace_single_core.exe
+        asset_name: SolveSpaceNitro_single_core.exe
         asset_content_type: binary/octet-stream
-    - name: Upload solvespace_x64.exe
+    - name: Upload SolveSpaceNitro_x64.exe
       uses: actions/upload-release-asset@v1
       continue-on-error: true
       env:
@@ -244,9 +244,9 @@ jobs:
       with:
         upload_url: ${{ steps.get_upload_url.outputs.upload_url }}
         asset_path: windows/solvespace_x64.exe
-        asset_name: solvespace_x64.exe
+        asset_name: SolveSpaceNitro_x64.exe
         asset_content_type: binary/octet-stream
-    - name: Upload solvespace_single_core_x64.exe
+    - name: Upload SolveSpaceNitro_single_core_x64.exe
       uses: actions/upload-release-asset@v1
       continue-on-error: true
       env:
@@ -254,15 +254,15 @@ jobs:
       with:
         upload_url: ${{ steps.get_upload_url.outputs.upload_url }}
         asset_path: windows-openmp/solvespace_single_core_x64.exe
-        asset_name: solvespace_single_core_x64.exe
+        asset_name: SolveSpaceNitro_single_core_x64.exe
         asset_content_type: binary/octet-stream
-    - name: Upload SolveSpace.dmg
+    - name: Upload SolveSpaceNitro.dmg
       uses: actions/upload-release-asset@v1
       continue-on-error: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.get_upload_url.outputs.upload_url }}
-        asset_path: macos/SolveSpace.dmg
-        asset_name: SolveSpace.dmg
+        asset_path: macos/SolveSpaceNitro.dmg
+        asset_name: SolveSpaceNitro.dmg
         asset_content_type: binary/octet-stream
