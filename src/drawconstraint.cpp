@@ -10,6 +10,53 @@
 
 namespace SolveSpace {
 
+static bool IsIdentifierStart(char c) {
+    return std::isalpha((unsigned char)c) || c == '_';
+}
+
+static bool IsIdentifierContinue(char c) {
+    return std::isalnum((unsigned char)c) || c == '_';
+}
+
+static bool ConstraintExpressionUsesUserParameter(const std::string &expression) {
+    if(expression.empty() || SS.userParameters.empty()) {
+        return false;
+    }
+
+    std::unordered_set<std::string> parameterNames;
+    parameterNames.reserve(SS.userParameters.size());
+    for(const SolveSpaceUI::UserParameter &parameter : SS.userParameters) {
+        if(!parameter.name.empty()) {
+            parameterNames.insert(parameter.name);
+        }
+    }
+    if(parameterNames.empty()) {
+        return false;
+    }
+
+    const size_t n = expression.size();
+    size_t i = 0;
+    while(i < n) {
+        if(!IsIdentifierStart(expression[i])) {
+            i++;
+            continue;
+        }
+
+        size_t j = i + 1;
+        while(j < n && IsIdentifierContinue(expression[j])) {
+            j++;
+        }
+
+        if(parameterNames.find(expression.substr(i, j - i)) != parameterNames.end()) {
+            return true;
+        }
+
+        i = j;
+    }
+
+    return false;
+}
+
 std::string Constraint::Label() const {
     std::string result;
     if(type == Type::ANGLE) {
@@ -28,6 +75,11 @@ std::string Constraint::Label() const {
         // valA has units of distance
         result = SS.MmToStringSI(fabs(valA));
     }
+
+    if(!valAExpr.empty() && ConstraintExpressionUsesUserParameter(valAExpr)) {
+        result += ssprintf(" (%s)", valAExpr.c_str());
+    }
+
     if(reference) {
         result += " REF";
     }

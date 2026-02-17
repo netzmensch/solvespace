@@ -235,6 +235,8 @@ void GraphicsWindow::PasteClipboard(Vector trans, double theta, double scale) {
         c.workplane = SS.GW.ActiveWorkplane();
         c.type = cc->type;
         c.valA = cc->valA;
+        c.valAExpr = cc->valAExpr;
+        c.valAExprNegate = cc->valAExprNegate;
         c.ptA = SS.clipboard.NewEntityFor(mapPoint(cc->ptA));
         c.ptB = SS.clipboard.NewEntityFor(mapPoint(cc->ptB));
         c.entityA = SS.clipboard.NewEntityFor(cc->entityA);
@@ -253,11 +255,15 @@ void GraphicsWindow::PasteClipboard(Vector trans, double theta, double scale) {
                 break;
             case Constraint::Type::PT_LINE_DISTANCE:
                 c.valA *= scale;
+                c.valAExpr.clear();
+                c.valAExprNegate = false;
                 break;
             case Constraint::Type::PT_PT_DISTANCE:
             case Constraint::Type::PROJ_PT_DISTANCE:
             case Constraint::Type::DIAMETER:
                 c.valA *= fabs(scale);
+                c.valAExpr.clear();
+                c.valAExprNegate = false;
                 break;
             case Constraint::Type::ARC_LINE_TANGENT: {
                 if(scale < 0) {

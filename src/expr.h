@@ -8,6 +8,7 @@
 #define SOLVESPACE_EXPR_H
 
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <string>
 #include <unordered_map>
@@ -18,6 +19,7 @@
 namespace SolveSpace {
 
 using SubstitutionMap = std::unordered_map<hParam, Param *, HandleHasher<hParam>>;
+using ExprVariableResolver = std::function<bool(const std::string &, double *)>;
 
 class Expr {
 public:
@@ -107,8 +109,10 @@ public:
                                        ParamList *thenTry,
                                        bool foldConstants = false) const;
 
-    static Expr *Parse(const std::string &input, std::string *error);
-    static Expr *From(const std::string &input, bool popUpError);
+    static Expr *Parse(const std::string &input, std::string *error,
+                       const ExprVariableResolver *resolver = nullptr);
+    static Expr *From(const std::string &input, bool popUpError,
+                      const ExprVariableResolver *resolver = nullptr);
 };
 
 class ExprVector {

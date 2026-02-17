@@ -347,7 +347,7 @@ MenuBarRef GetOrCreateMainMenu(bool *unique) {
 // Cocoa NSView and NSWindow extensions
 //-----------------------------------------------------------------------------
 
-@interface SSView : NSOpenGLView
+@interface SSView : NSOpenGLView<NSTextFieldDelegate>
 @property Platform::Window *receiver;
 
 @property BOOL acceptsFirstResponder;
@@ -358,6 +358,7 @@ MenuBarRef GetOrCreateMainMenu(bool *unique) {
         usingMonospace:(BOOL)isMonospace;
 - (void)stopEditing;
 - (void)didEdit:(NSString *)text;
+- (void)setEditorSuggestions:(NSArray<NSString *> *)suggestions;
 
 @property double scrollerMin;
 @property double scrollerSize;
@@ -369,6 +370,9 @@ MenuBarRef GetOrCreateMainMenu(bool *unique) {
 {
     NSTrackingArea     *trackingArea;
     NSTextField        *editor;
+    NSArray<NSString*> *editorSuggestions;
+    NSString           *lastEditorText;
+    BOOL               editorCompletionInProgress;
     double             magnificationGestureCurrentZ;
     double             rotationGestureCurrent;
     Point2d            trackpadPositionShift;
@@ -396,8 +400,12 @@ MenuBarRef GetOrCreateMainMenu(bool *unique) {
         [[editor cell] setWraps:NO];
         [[editor cell] setScrollable:YES];
         editor.bezeled = NO;
+        editor.delegate = self;
         editor.target = self;
         editor.action = @selector(didEdit:);
+        editorSuggestions = @[];
+        lastEditorText = @"";
+        editorCompletionInProgress = NO;
 
         inTrackpadScrollGesture = false;
         activeTrackpadTouches = 0;
@@ -793,6 +801,7 @@ MenuBarRef GetOrCreateMainMenu(bool *unique) {
 
     [editor setFrameOrigin:origin];
     [editor setStringValue:text];
+    lastEditorText = [[editor stringValue] copy];
     [editor sizeToFit];
 
     NSSize frameSize = [editor frame].size;
@@ -801,11 +810,18 @@ MenuBarRef GetOrCreateMainMenu(bool *unique) {
 
     [[self window] makeFirstResponder:editor];
     [[self window] makeKeyWindow];
+
+    NSTextView *fieldEditor = (NSTextView *)[[self window] fieldEditor:YES forObject:editor];
+    if(fieldEditor &&
+       [fieldEditor respondsToSelector:@selector(setAutomaticTextCompletionEnabled:)]) {
+        [fieldEditor setAutomaticTextCompletionEnabled:YES];
+    }
 }
 
 - (void)stopEditing {
     if(editing) {
         [editor removeFromSuperview];
+        lastEditorText = @"";
         [[self window] makeFirstResponder:self];
         editing = NO;
     }
@@ -815,6 +831,78 @@ MenuBarRef GetOrCreateMainMenu(bool *unique) {
     if(receiver->onEditingDone) {
         receiver->onEditingDone([[editor stringValue] UTF8String]);
     }
+}
+
+- (void)setEditorSuggestions:(NSArray<NSString *> *)suggestions {
+    editorSuggestions = [suggestions copy];
+}
+
+- (void)controlTextDidChange:(NSNotification *)notification {
+    if([editorSuggestions count] == 0) {
+        lastEditorText = [[editor stringValue] copy];
+        return;
+    }
+    if(editorCompletionInProgress) {
+        lastEditorText = [[editor stringValue] copy];
+        return;
+    }
+
+    NSString *currentEditorText = [editor stringValue];
+    if([currentEditorText length] <= [lastEditorText length]) {
+        lastEditorText = [currentEditorText copy];
+        return;
+    }
+    lastEditorText = [currentEditorText copy];
+
+    NSTextView *fieldEditor = (NSTextView *)[[self window] fieldEditor:NO forObject:editor];
+    if(fieldEditor == nil) {
+        return;
+    }
+
+    editorCompletionInProgress = YES;
+    [fieldEditor complete:nil];
+    editorCompletionInProgress = NO;
+}
+
+- (BOOL)control:(NSControl *)control textView:(NSTextView *)textView
+    doCommandBySelector:(SEL)commandSelector {
+    if(control != editor || [editorSuggestions count] == 0) {
+        return NO;
+    }
+
+    if(commandSelector == @selector(insertTab:) ||
+       commandSelector == @selector(complete:)) {
+        [textView complete:nil];
+        return YES;
+    }
+
+    return NO;
+}
+
+- (NSArray<NSString *> *)control:(NSControl *)control
+                        textView:(NSTextView *)textView
+                     completions:(NSArray<NSString *> *)words
+            forPartialWordRange:(NSRange)charRange
+            indexOfSelectedItem:(NSInteger *)indexOfSelectedItem {
+    if(control != editor || [editorSuggestions count] == 0) {
+        return @[];
+    }
+
+    NSString *partialWord = [[textView string] substringWithRange:charRange];
+    if(partialWord.length == 0) {
+        return @[];
+    }
+
+    NSMutableArray<NSString *> *matches = [NSMutableArray array];
+    for(NSString *candidate in editorSuggestions) {
+        NSRange range = [candidate rangeOfString:partialWord
+                                         options:(NSCaseInsensitiveSearch | NSAnchoredSearch)];
+        if(range.location != NSNotFound) {
+            [matches addObject:candidate];
+        }
+    }
+
+    return matches;
 }
 
 - (void)cancelOperation:(id)sender {
@@ -1100,6 +1188,15 @@ public:
         [ssView stopEditing];
     }
 
+    void SetEditorSuggestions(const std::vector<std::string> &suggestions) override {
+        NSMutableArray<NSString *> *nsSuggestions =
+            [NSMutableArray arrayWithCapacity:suggestions.size()];
+        for(const std::string &suggestion : suggestions) {
+            [nsSuggestions addObject:Wrap(suggestion)];
+        }
+        [ssView setEditorSuggestions:nsSuggestions];
+    }
+
     void SetScrollbarVisible(bool visible) override {
         if(visible) {
             [nsContainer removeConstraints:nsConstraintsWithoutScrollbar];
@@ -1314,6 +1411,7 @@ public:
     NSWindow *nsWindow;
 
     std::vector<Response> responses;
+    int defaultButtonIndex = -1;
 
     void SetType(Type type) override {
         switch(type) {
@@ -1345,13 +1443,30 @@ public:
         NSButton *nsButton = [nsAlert addButtonWithTitle:Wrap(PrepareMnemonics(label))];
         if(!isDefault && [nsButton.keyEquivalent isEqualToString:@"\n"]) {
             nsButton.keyEquivalent = @"";
-        } else if(response == Response::CANCEL) {
+        }
+        if(response == Response::CANCEL) {
             nsButton.keyEquivalent = @"\e";
+        }
+        if(isDefault) {
+            defaultButtonIndex = (int)responses.size();
         }
         responses.push_back(response);
     }
 
     Response RunModal() override {
+        bool hasEscapeButton = false;
+        for(NSButton *nsButton in nsAlert.buttons) {
+            if([nsButton.keyEquivalent isEqualToString:@"\e"]) {
+                hasEscapeButton = true;
+                break;
+            }
+        }
+        if(!hasEscapeButton && !responses.empty()) {
+            int escapeButtonIndex = (defaultButtonIndex >= 0) ? defaultButtonIndex : 0;
+            NSButton *escapeButton = [nsAlert.buttons objectAtIndex:escapeButtonIndex];
+            escapeButton.keyEquivalent = @"\e";
+        }
+
         // FIXME(platform/gui): figure out a way to run the alert as a sheet
         NSModalResponse nsResponse = [nsAlert runModal];
         ssassert(nsResponse >= NSAlertFirstButtonReturn &&

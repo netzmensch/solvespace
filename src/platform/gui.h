@@ -269,6 +269,7 @@ public:
     virtual void ShowEditor(double x, double y, double fontHeight, double minWidth,
                             bool isMonospace, const std::string &text) = 0;
     virtual void HideEditor() = 0;
+    virtual void SetEditorSuggestions(const std::vector<std::string> &suggestions) = 0;
 
     virtual void SetScrollbarVisible(bool visible) = 0;
     virtual void ConfigureScrollbar(double min, double max, double pageSize) = 0;
