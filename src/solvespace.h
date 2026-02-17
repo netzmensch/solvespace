@@ -553,6 +553,7 @@ public:
                                               double *result,
                                               std::string *error) const;
     bool RecomputeConstraintExpressions(std::string *error, bool apply = true);
+    bool RecomputeThreadParameterExpressions(std::string *error, bool apply = true);
     double ExprToMm(Expr *e);
     double StringToMm(const std::string &s);
     const char *UnitName();

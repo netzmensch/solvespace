@@ -299,6 +299,11 @@ void TextWindow::ScreenDeleteUserParameter(int link, uint32_t v) {
         Error("Cannot delete user parameter.\n%s", expressionError.c_str());
         return;
     }
+    if(!SS.RecomputeThreadParameterExpressions(&expressionError, /*apply=*/false)) {
+        SS.userParameters = backup;
+        Error("Cannot delete user parameter.\n%s", expressionError.c_str());
+        return;
+    }
 
     SS.userParameters = backup;
     SS.UndoRemember();
@@ -753,6 +758,11 @@ bool TextWindow::EditControlDoneForConfiguration(const std::string &s) {
                 Error("Cannot rename user parameter.\n%s", expressionError.c_str());
                 break;
             }
+            if(!SS.RecomputeThreadParameterExpressions(&expressionError, /*apply=*/false)) {
+                SS.userParameters = backup;
+                Error("Cannot rename user parameter.\n%s", expressionError.c_str());
+                break;
+            }
 
             SS.userParameters = backup;
             SS.UndoRemember();
@@ -770,6 +780,11 @@ bool TextWindow::EditControlDoneForConfiguration(const std::string &s) {
 
             std::string expressionError;
             if(!SS.RecomputeConstraintExpressions(&expressionError, /*apply=*/false)) {
+                SS.userParameters = backup;
+                Error("Cannot update user parameter expression.\n%s", expressionError.c_str());
+                break;
+            }
+            if(!SS.RecomputeThreadParameterExpressions(&expressionError, /*apply=*/false)) {
                 SS.userParameters = backup;
                 Error("Cannot update user parameter expression.\n%s", expressionError.c_str());
                 break;

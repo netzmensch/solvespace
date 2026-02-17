@@ -117,6 +117,7 @@ const MenuEntry Menu[] = {
 { 1, NULL,                              Command::NONE,             0,       KN, NULL   },
 { 1, N_("E&xtrude"),                    Command::GROUP_EXTRUDE,    S|'x',   KN, mGrp   },
 { 1, N_("&Helix"),                      Command::GROUP_HELIX,      S|'h',   KN, mGrp   },
+{ 1, N_("Th&read"),                     Command::GROUP_THREAD,     0,       KN, mGrp   },
 { 1, N_("&Lathe"),                      Command::GROUP_LATHE,      S|'l',   KN, mGrp   },
 { 1, N_("Re&volve"),                    Command::GROUP_REVOLVE,    S|'v',   KN, mGrp   },
 { 1, NULL,                              Command::NONE,             0,       KN, NULL   },

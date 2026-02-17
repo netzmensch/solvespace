@@ -5,8 +5,101 @@
 // Copyright 2008-2013 Jonathan Westhues.
 //-----------------------------------------------------------------------------
 #include "solvespace.h"
+#include <cctype>
 
 namespace SolveSpace {
+
+namespace {
+
+std::vector<std::string> BuildUserParameterSuggestions() {
+    std::vector<std::string> suggestions;
+    suggestions.reserve(SS.userParameters.size());
+    for(const SolveSpaceUI::UserParameter &parameter : SS.userParameters) {
+        if(!parameter.name.empty()) {
+            suggestions.push_back(parameter.name);
+        }
+    }
+    std::sort(suggestions.begin(), suggestions.end());
+    suggestions.erase(std::unique(suggestions.begin(), suggestions.end()), suggestions.end());
+    return suggestions;
+}
+
+bool ThreadExpressionUsesUserParameter(const std::string &expression) {
+    if(expression.empty()) return false;
+
+    std::unordered_set<std::string> names;
+    names.reserve(SS.userParameters.size());
+    for(const SolveSpaceUI::UserParameter &parameter : SS.userParameters) {
+        if(!parameter.name.empty()) {
+            names.insert(parameter.name);
+        }
+    }
+    if(names.empty()) return false;
+
+    std::string token;
+    token.reserve(expression.size());
+    for(size_t i = 0; i < expression.size(); i++) {
+        unsigned char ch = (unsigned char)expression[i];
+        if(isalpha(ch) || ch == '_') {
+            token.clear();
+            token.push_back((char)ch);
+            while(i + 1 < expression.size()) {
+                unsigned char next = (unsigned char)expression[i + 1];
+                if(!(isalnum(next) || next == '_')) break;
+                token.push_back((char)next);
+                i++;
+            }
+            if(names.find(token) != names.end()) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+std::string ThreadExpressionSuffix(const Group *g, int paramIndex) {
+    const std::string &expr = g->ThreadParamExpression(paramIndex);
+    if(expr.empty() || !ThreadExpressionUsesUserParameter(expr)) {
+        return "";
+    }
+    return ssprintf(" (%s)", expr.c_str());
+}
+
+bool ValidateThreadParameterInput(const Group *g, int paramIndex, double valueMm) {
+    if((paramIndex == 6 || paramIndex == 7 || paramIndex == 10) && valueMm <= LENGTH_EPS) {
+        Error(_("Value must be positive."));
+        return false;
+    }
+    if((paramIndex == 8 || paramIndex == 9 || paramIndex == 11 ||
+        paramIndex == 12 || paramIndex == 13 || paramIndex == 14) && valueMm < 0.0) {
+        Error(_("Value must be zero or positive."));
+        return false;
+    }
+
+    auto ValueAt = [&](int idx) {
+        return (idx == paramIndex) ? valueMm : SK.GetParam(g->h.param(idx))->val;
+    };
+
+    if(ValueAt(13) > LENGTH_EPS) {
+        if(ValueAt(12) <= LENGTH_EPS) {
+            Error(_("Cap top diameter must be positive when cap is enabled."));
+            return false;
+        }
+        if(ValueAt(14) <= LENGTH_EPS) {
+            Error(_("Cap bottom diameter must be positive when cap is enabled."));
+            return false;
+        }
+        if(ValueAt(14) >= ValueAt(12) - LENGTH_EPS) {
+            Error(_("Cap bottom diameter must be smaller than cap top diameter."));
+            return false;
+        }
+    }
+
+    return true;
+}
+
+} // namespace
 
 //-----------------------------------------------------------------------------
 // A navigation bar that always appears at the top of the window, with a
@@ -265,6 +358,38 @@ void TextWindow::ScreenChangeGroupOption(int link, uint32_t v) {
         case 'k': g->skipFirst = true; break;
         case 'K': g->skipFirst = false; break;
 
+        case 'm': g->meshCombine = Group::CombineAs::UNION; break;
+        case 'F': g->meshCombine = Group::CombineAs::DIFFERENCE; break;
+        case 't':
+            if(g->type == Group::Type::THREAD) {
+                double currentTip = SK.GetParam(g->h.param(11))->val;
+                if(currentTip > LENGTH_EPS) {
+                    SK.GetParam(g->h.param(11))->val = 0.0;
+                    g->ThreadParamExpression(11).clear();
+                } else {
+                    SK.GetParam(g->h.param(11))->val = 2.0 * SS.MmPerUnit();
+                    g->ThreadParamExpression(11).clear();
+                }
+            }
+            break;
+        case 'A':
+            if(g->type == Group::Type::THREAD) {
+                double currentDepth = SK.GetParam(g->h.param(13))->val;
+                if(currentDepth > LENGTH_EPS) {
+                    SK.GetParam(g->h.param(13))->val = 0.0;
+                    g->ThreadParamExpression(13).clear();
+                } else {
+                    double threadDiameter = std::max(SK.GetParam(g->h.param(6))->val, 1e-6);
+                    SK.GetParam(g->h.param(12))->val = threadDiameter + 2.0 * SS.MmPerUnit();
+                    SK.GetParam(g->h.param(13))->val = 2.0 * SS.MmPerUnit();
+                    SK.GetParam(g->h.param(14))->val = threadDiameter;
+                    g->ThreadParamExpression(12).clear();
+                    g->ThreadParamExpression(13).clear();
+                    g->ThreadParamExpression(14).clear();
+                }
+            }
+            break;
+
         case 'c':
             if(g->type == Group::Type::EXTRUDE) {
                 // When an extrude group is first created, it's positioned for a union
@@ -347,6 +472,27 @@ void TextWindow::ScreenChangeHelixPitch(int link, uint32_t v) {
     SS.TW.edit.meaning = Edit::HELIX_PITCH;
     SS.TW.edit.group.v = v;
 }
+void TextWindow::ScreenChangeThreadParameter(int link, uint32_t v) {
+    (void)link;
+    Group *g = SK.GetGroup(SS.TW.shown.group);
+    int paramIndex = (int)v;
+    if(paramIndex < 6 || paramIndex > 14) {
+        Error(_("Unexpected thread parameter selected."));
+        return;
+    }
+    std::string editValue = g->ThreadParamExpression(paramIndex);
+    if(editValue.empty()) {
+        double value = SK.GetParam(g->h.param(paramIndex))->val / SS.MmPerUnit();
+        editValue = ssprintf("%.8f", value);
+    }
+    SS.TW.ShowEditControl(3, editValue);
+    if(SS.TW.window) {
+        SS.TW.window->SetEditorSuggestions(BuildUserParameterSuggestions());
+    }
+    SS.TW.edit.meaning = Edit::THREAD_PARAMETER;
+    SS.TW.edit.group.v = g->h.v;
+    SS.TW.edit.i = paramIndex;
+}
 void TextWindow::ScreenChangePitchOption(int link, uint32_t v) {
     Group *g = SK.GetGroup(SS.TW.shown.group);
     if(g->valB == 0.0) {
@@ -395,13 +541,15 @@ void TextWindow::ShowGroupInfo() {
         Printf(true, " %Ftlathe plane sketch");
     } else if(g->type == Group::Type::EXTRUDE || g->type == Group::Type::ROTATE ||
               g->type == Group::Type::TRANSLATE || g->type == Group::Type::REVOLVE ||
-              g->type == Group::Type::HELIX) {
+              g->type == Group::Type::HELIX || g->type == Group::Type::THREAD) {
         if(g->type == Group::Type::EXTRUDE) {
             s = "extrude plane sketch";
         } else if(g->type == Group::Type::TRANSLATE) {
             s = "translate original sketch";
         } else if(g->type == Group::Type::HELIX) {
             s = "create helical extrusion";
+        } else if(g->type == Group::Type::THREAD) {
+            s = "create thread";
         } else if(g->type == Group::Type::ROTATE) {
             s = "rotate original sketch";
         } else if(g->type == Group::Type::REVOLVE) {
@@ -409,51 +557,53 @@ void TextWindow::ShowGroupInfo() {
         }
         Printf(true, " %Ft%s%E", s);
 
-        bool one  = ((g->subtype == Group::Subtype::ONE_SIDED) ||
-                     (g->subtype == Group::Subtype::ONE_SKEWED));
-        bool two  = ((g->subtype == Group::Subtype::TWO_SIDED) ||
-                     (g->subtype == Group::Subtype::TWO_SKEWED));
-        bool skew = ((g->subtype == Group::Subtype::ONE_SKEWED) ||
-                     (g->subtype == Group::Subtype::TWO_SKEWED));
-        
-        if (g->type == Group::Type::EXTRUDE) {
-        Printf(false,
-            "%Ba   %f%Ls%Fd%s one-sided%E  "
-                  "%f%LS%Fd%s two-sided%E  "
-                  "%f%Lw%Fd%s skewed%E",
-            &TextWindow::ScreenChangeGroupOption,
-            one ? RADIO_TRUE : RADIO_FALSE,
-            &TextWindow::ScreenChangeGroupOption,
-            two ? RADIO_TRUE : RADIO_FALSE,
-            &TextWindow::ScreenChangeGroupOption,
-            skew ? CHECK_TRUE : CHECK_FALSE);
-        } else {
-        Printf(false,
-            "%Ba   %f%Ls%Fd%s one-sided%E  "
-                  "%f%LS%Fd%s two-sided%E",
-            &TextWindow::ScreenChangeGroupOption,
-            one ? RADIO_TRUE : RADIO_FALSE,
-            &TextWindow::ScreenChangeGroupOption,
-            two ? RADIO_TRUE : RADIO_FALSE);        
-        }
-        
-        if(g->type == Group::Type::ROTATE || g->type == Group::Type::TRANSLATE) {
-            if(g->subtype == Group::Subtype::ONE_SIDED) {
-                bool skip = g->skipFirst;
+        if(g->type != Group::Type::THREAD) {
+            bool one  = ((g->subtype == Group::Subtype::ONE_SIDED) ||
+                         (g->subtype == Group::Subtype::ONE_SKEWED));
+            bool two  = ((g->subtype == Group::Subtype::TWO_SIDED) ||
+                         (g->subtype == Group::Subtype::TWO_SKEWED));
+            bool skew = ((g->subtype == Group::Subtype::ONE_SKEWED) ||
+                         (g->subtype == Group::Subtype::TWO_SKEWED));
+
+            if(g->type == Group::Type::EXTRUDE) {
                 Printf(false,
-                   "%Bd   %Ftstart  %f%LK%Fd%s with original%E  "
-                         "%f%Lk%Fd%s with copy #1%E",
-                    &ScreenChangeGroupOption,
-                    !skip ? RADIO_TRUE : RADIO_FALSE,
-                    &ScreenChangeGroupOption,
-                    skip ? RADIO_TRUE : RADIO_FALSE);
+                    "%Ba   %f%Ls%Fd%s one-sided%E  "
+                          "%f%LS%Fd%s two-sided%E  "
+                          "%f%Lw%Fd%s skewed%E",
+                    &TextWindow::ScreenChangeGroupOption,
+                    one ? RADIO_TRUE : RADIO_FALSE,
+                    &TextWindow::ScreenChangeGroupOption,
+                    two ? RADIO_TRUE : RADIO_FALSE,
+                    &TextWindow::ScreenChangeGroupOption,
+                    skew ? CHECK_TRUE : CHECK_FALSE);
+            } else {
+                Printf(false,
+                    "%Ba   %f%Ls%Fd%s one-sided%E  "
+                          "%f%LS%Fd%s two-sided%E",
+                    &TextWindow::ScreenChangeGroupOption,
+                    one ? RADIO_TRUE : RADIO_FALSE,
+                    &TextWindow::ScreenChangeGroupOption,
+                    two ? RADIO_TRUE : RADIO_FALSE);
             }
 
-            int times = (int)(g->valA);
-            Printf(false, "%Bp   %Ftrepeat%E %d time%s %Fl%Ll%D%f[change]%E",
-                (g->subtype == Group::Subtype::ONE_SIDED) ? 'a' : 'd',
-                times, times == 1 ? "" : "s",
-                g->h.v, &TextWindow::ScreenChangeExprA);
+            if(g->type == Group::Type::ROTATE || g->type == Group::Type::TRANSLATE) {
+                if(g->subtype == Group::Subtype::ONE_SIDED) {
+                    bool skip = g->skipFirst;
+                    Printf(false,
+                       "%Bd   %Ftstart  %f%LK%Fd%s with original%E  "
+                             "%f%Lk%Fd%s with copy #1%E",
+                        &ScreenChangeGroupOption,
+                        !skip ? RADIO_TRUE : RADIO_FALSE,
+                        &ScreenChangeGroupOption,
+                        skip ? RADIO_TRUE : RADIO_FALSE);
+                }
+
+                int times = (int)(g->valA);
+                Printf(false, "%Bp   %Ftrepeat%E %d time%s %Fl%Ll%D%f[change]%E",
+                    (g->subtype == Group::Subtype::ONE_SIDED) ? 'a' : 'd',
+                    times, times == 1 ? "" : "s",
+                    g->h.v, &TextWindow::ScreenChangeExprA);
+            }
         }
     } else if(g->type == Group::Type::LINKED) {
         Printf(true, " %Ftlink geometry from file%E");
@@ -495,34 +645,102 @@ void TextWindow::ShowGroupInfo() {
         Printf(false, ""); // blank line    
     }
 
+    if(g->type == Group::Type::THREAD) {
+        Printf(false, "%Ft thread parameters%E");
+        Printf(false, "%Ba   %Ftdiameter%E %#%s %Fl%Ll%D%f[change]%E",
+               SK.GetParam(g->h.param(6))->val / SS.MmPerUnit(),
+               ThreadExpressionSuffix(g, 6).c_str(),
+               6, &TextWindow::ScreenChangeThreadParameter, g->h.v);
+        Printf(false, "%Ba   %Ftlength%E   %#%s %Fl%Ll%D%f[change]%E",
+               SK.GetParam(g->h.param(7))->val / SS.MmPerUnit(),
+               ThreadExpressionSuffix(g, 7).c_str(),
+               7, &TextWindow::ScreenChangeThreadParameter, g->h.v);
+        Printf(false, "%Ba   %Ftthread height%E %#%s %Fl%Ll%D%f[change]%E",
+               SK.GetParam(g->h.param(8))->val / SS.MmPerUnit(),
+               ThreadExpressionSuffix(g, 8).c_str(),
+               8, &TextWindow::ScreenChangeThreadParameter, g->h.v);
+        Printf(false, "%Ba   %Ftthread depth%E  %#%s %Fl%Ll%D%f[change]%E",
+               SK.GetParam(g->h.param(9))->val / SS.MmPerUnit(),
+               ThreadExpressionSuffix(g, 9).c_str(),
+               9, &TextWindow::ScreenChangeThreadParameter, g->h.v);
+        Printf(false, "%Ba   %Ftpitch%E    %#%s %Fl%Ll%D%f[change]%E",
+               SK.GetParam(g->h.param(10))->val / SS.MmPerUnit(),
+               ThreadExpressionSuffix(g, 10).c_str(),
+               10, &TextWindow::ScreenChangeThreadParameter, g->h.v);
+
+        bool tipEnabled = SK.GetParam(g->h.param(11))->val > LENGTH_EPS;
+        Printf(false, "   %Fd%f%Lt%s  enable tip",
+               &TextWindow::ScreenChangeGroupOption,
+               tipEnabled ? CHECK_TRUE : CHECK_FALSE);
+        if(tipEnabled) {
+            Printf(false, "%Ba   %Fttip height%E %#%s %Fl%Ll%D%f[change]%E",
+                   SK.GetParam(g->h.param(11))->val / SS.MmPerUnit(),
+                   ThreadExpressionSuffix(g, 11).c_str(),
+                   11, &TextWindow::ScreenChangeThreadParameter, g->h.v);
+        }
+
+        bool capEnabled = SK.GetParam(g->h.param(13))->val > LENGTH_EPS;
+        Printf(false, "   %Fd%f%LA%s  enable conical cap",
+               &TextWindow::ScreenChangeGroupOption,
+               capEnabled ? CHECK_TRUE : CHECK_FALSE);
+        if(capEnabled) {
+            Printf(false, "%Ba   %Ftcap top diameter%E %#%s %Fl%Ll%D%f[change]%E",
+                   SK.GetParam(g->h.param(12))->val / SS.MmPerUnit(),
+                   ThreadExpressionSuffix(g, 12).c_str(),
+                   12, &TextWindow::ScreenChangeThreadParameter, g->h.v);
+            Printf(false, "%Ba   %Ftcap height%E %#%s %Fl%Ll%D%f[change]%E",
+                   SK.GetParam(g->h.param(13))->val / SS.MmPerUnit(),
+                   ThreadExpressionSuffix(g, 13).c_str(),
+                   13, &TextWindow::ScreenChangeThreadParameter, g->h.v);
+            Printf(false, "%Ba   %Ftcap bottom diameter%E %#%s %Fl%Ll%D%f[change]%E",
+                   SK.GetParam(g->h.param(14))->val / SS.MmPerUnit(),
+                   ThreadExpressionSuffix(g, 14).c_str(),
+                   14, &TextWindow::ScreenChangeThreadParameter, g->h.v);
+        }
+        Printf(false, "");
+    }
+
     if(g->type == Group::Type::EXTRUDE || g->type == Group::Type::LATHE ||
        g->type == Group::Type::REVOLVE || g->type == Group::Type::LINKED ||
-       g->type == Group::Type::HELIX) {
-        bool un   = (g->meshCombine == Group::CombineAs::UNION);
-        bool diff = (g->meshCombine == Group::CombineAs::DIFFERENCE);
-        bool intr = (g->meshCombine == Group::CombineAs::INTERSECTION);
-        bool asy  = (g->meshCombine == Group::CombineAs::ASSEMBLE);
+       g->type == Group::Type::HELIX || g->type == Group::Type::THREAD) {
+        if(g->type == Group::Type::THREAD) {
+            bool male = (g->meshCombine != Group::CombineAs::DIFFERENCE);
+            bool female = !male;
+            Printf(false, " %Ftthread type");
+            Printf(false, "%Ba   %f%Lm%Fd%s male (union)%E  "
+                                 "%f%LF%Fd%s female (difference)%E",
+                &TextWindow::ScreenChangeGroupOption,
+                male ? RADIO_TRUE : RADIO_FALSE,
+                &TextWindow::ScreenChangeGroupOption,
+                female ? RADIO_TRUE : RADIO_FALSE);
+        } else {
+            bool un   = (g->meshCombine == Group::CombineAs::UNION);
+            bool diff = (g->meshCombine == Group::CombineAs::DIFFERENCE);
+            bool intr = (g->meshCombine == Group::CombineAs::INTERSECTION);
+            bool asy  = (g->meshCombine == Group::CombineAs::ASSEMBLE);
 
-        Printf(false, " %Ftsolid model as");
-        Printf(false, "%Ba   %f%D%Lc%Fd%s union%E  "
-                             "%f%D%Lc%Fd%s assemble%E  ",
-            &TextWindow::ScreenChangeGroupOption,
-            Group::CombineAs::UNION,
-            un ? RADIO_TRUE : RADIO_FALSE,
-            &TextWindow::ScreenChangeGroupOption,
-            Group::CombineAs::ASSEMBLE,
-            (asy ? RADIO_TRUE : RADIO_FALSE));
-        Printf(false, "%Ba   %f%D%Lc%Fd%s difference%E  "
-                             "%f%D%Lc%Fd%s intersection%E  ",
-            &TextWindow::ScreenChangeGroupOption,
-            Group::CombineAs::DIFFERENCE,
-            diff ? RADIO_TRUE : RADIO_FALSE,
-            &TextWindow::ScreenChangeGroupOption,
-            Group::CombineAs::INTERSECTION,
-            intr ? RADIO_TRUE : RADIO_FALSE);
+            Printf(false, " %Ftsolid model as");
+            Printf(false, "%Ba   %f%D%Lc%Fd%s union%E  "
+                                 "%f%D%Lc%Fd%s assemble%E  ",
+                &TextWindow::ScreenChangeGroupOption,
+                Group::CombineAs::UNION,
+                un ? RADIO_TRUE : RADIO_FALSE,
+                &TextWindow::ScreenChangeGroupOption,
+                Group::CombineAs::ASSEMBLE,
+                (asy ? RADIO_TRUE : RADIO_FALSE));
+            Printf(false, "%Ba   %f%D%Lc%Fd%s difference%E  "
+                                 "%f%D%Lc%Fd%s intersection%E  ",
+                &TextWindow::ScreenChangeGroupOption,
+                Group::CombineAs::DIFFERENCE,
+                diff ? RADIO_TRUE : RADIO_FALSE,
+                &TextWindow::ScreenChangeGroupOption,
+                Group::CombineAs::INTERSECTION,
+                intr ? RADIO_TRUE : RADIO_FALSE);
+        }
 
         if(g->type == Group::Type::EXTRUDE || g->type == Group::Type::LATHE ||
-           g->type == Group::Type::REVOLVE || g->type == Group::Type::HELIX) {
+           g->type == Group::Type::REVOLVE || g->type == Group::Type::HELIX ||
+           g->type == Group::Type::THREAD) {
             Printf(false,
                 "%Bd   %Ftcolor   %E%Bz  %Bd (%@, %@, %@) %f%D%Lf%Fl[change]%E",
                 &g->color,
@@ -535,7 +753,7 @@ void TextWindow::ShowGroupInfo() {
 
         if(g->type == Group::Type::EXTRUDE || g->type == Group::Type::LATHE ||
            g->type == Group::Type::REVOLVE || g->type == Group::Type::LINKED ||
-           g->type == Group::Type::HELIX) {
+           g->type == Group::Type::HELIX || g->type == Group::Type::THREAD) {
             Printf(false, "   %Fd%f%LP%s  suppress this group's solid model",
                 &TextWindow::ScreenChangeGroupOption,
                 g->suppress ? CHECK_TRUE : CHECK_FALSE);
@@ -900,6 +1118,29 @@ void TextWindow::EditControlDone(std::string s) {
                 SS.MarkGroupDirty(g->h);
             }
             break;
+
+        case Edit::THREAD_PARAMETER: {
+            Group *g = SK.GetGroup(edit.group);
+            double inputValue = 0.0;
+            std::string expressionError;
+            if(!SS.EvaluateExpressionWithUserParameters(s, /*values=*/nullptr,
+                                                        &inputValue, &expressionError)) {
+                Error("Not a valid number or expression: '%s'.\n%s.",
+                      s.c_str(), expressionError.c_str());
+                break;
+            }
+            double ev = inputValue * SS.MmPerUnit();
+            const int paramIndex = edit.i;
+
+            if(!ValidateThreadParameterInput(g, paramIndex, ev)) {
+                break;
+            }
+
+            g->ThreadParamExpression(paramIndex) = s;
+            SK.GetParam(g->h.param(paramIndex))->val = ev;
+            SS.MarkGroupDirty(g->h);
+            break;
+        }
 
         case Edit::GROUP_COLOR: {
             Vector rgb;

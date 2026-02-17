@@ -332,6 +332,57 @@ void Group::MenuGroup(Command id, Platform::Path linkFile) {
             g.name    = C_("group-name", "helix");
             break;
 
+        case Command::GROUP_THREAD: {
+            Vector axisDir = {};
+            g.predef.entityB = Entity::FREE_IN_3D;
+            if(gs.points == 1 && gs.faces == 1 && gs.n == 2) {
+                g.predef.origin = gs.point[0];
+                g.predef.entityB = gs.face[0];
+                axisDir = SK.GetEntity(gs.face[0])->FaceGetNormalNum();
+            } else if(gs.points == 1 && gs.anyNormals == 1 && gs.n == 2) {
+                g.predef.origin = gs.point[0];
+                g.predef.entityB = gs.anyNormal[0];
+                axisDir = SK.GetEntity(gs.anyNormal[0])->NormalGetNum().RotationN();
+            } else if(gs.points == 1 && gs.vectors == 1 && gs.n == 2) {
+                g.predef.origin = gs.point[0];
+                g.predef.entityB = gs.vector[0];
+                Entity *axisEntity = SK.GetEntity(gs.vector[0]);
+                axisDir = axisEntity->IsFace() ? axisEntity->FaceGetNormalNum()
+                                               : axisEntity->VectorGetNum();
+            } else if(gs.points == 1 && gs.n == 1) {
+                g.predef.origin = gs.point[0];
+                if(SS.GW.LockedInWorkplane()) {
+                    Entity *w = SK.GetEntity(SS.GW.ActiveWorkplane());
+                    g.predef.entityB = w->Normal()->h;
+                    axisDir = w->Normal()->NormalGetNum().RotationN();
+                } else {
+                    axisDir = SS.GW.projRight.Cross(SS.GW.projUp);
+                }
+            } else {
+                Error(_("Bad selection for new thread. This group can "
+                        "be created with:\n\n"
+                        "    * a point (thread axis normal to active sketch, if any)\n"
+                        "    * a point and a normal or line segment (thread axis "
+                             "parallel to the selected normal / line)\n"
+                        "    * a point and a face (thread axis normal to the face)\n"));
+                return;
+            }
+
+            if(axisDir.Magnitude() < LENGTH_EPS) {
+                axisDir = Vector::From(0, 0, 1);
+            }
+            axisDir = axisDir.WithMagnitude(1);
+            g.predef.q = WorkplaneQuaternionForNormal(axisDir,
+                                                      StableInPlaneAxisForNormal(axisDir));
+
+            g.type        = Type::THREAD;
+            g.subtype     = Subtype::ONE_SIDED;
+            g.meshCombine = CombineAs::UNION;
+            g.forceToMesh = false;
+            g.name        = C_("group-name", "thread");
+            break;
+        }
+
         case Command::GROUP_ROT: {
             if(gs.points == 1 && gs.n == 1 && SS.GW.LockedInWorkplane()) {
                 g.predef.origin = gs.point[0];
@@ -786,6 +837,42 @@ void Group::Generate(EntityList *entity, ParamList *param)
             return;
         }
 
+        case Type::THREAD: {
+            Vector axis_pos = SK.GetEntity(predef.origin)->PointGetNum();
+            Vector axis_dir = predef.q.RotationN();
+            if(predef.entityB != Entity::FREE_IN_3D) {
+                Entity *axisEntity = SK.GetEntity(predef.entityB);
+                if(axisEntity->IsFace()) {
+                    axis_dir = axisEntity->FaceGetNormalNum();
+                } else if(axisEntity->IsNormal()) {
+                    axis_dir = axisEntity->NormalGetNum().RotationN();
+                } else {
+                    axis_dir = axisEntity->VectorGetNum();
+                }
+            }
+            if(axis_dir.Magnitude() < LENGTH_EPS) {
+                axis_dir = Vector::From(0, 0, 1);
+            }
+            axis_dir = axis_dir.WithMagnitude(1);
+
+            AddParam(param, h.param(0), axis_pos.x);
+            AddParam(param, h.param(1), axis_pos.y);
+            AddParam(param, h.param(2), axis_pos.z);
+            AddParam(param, h.param(3), axis_dir.x);
+            AddParam(param, h.param(4), axis_dir.y);
+            AddParam(param, h.param(5), axis_dir.z);
+            AddParam(param, h.param(6), 10.0);  // diameter
+            AddParam(param, h.param(7), 20.0);  // length
+            AddParam(param, h.param(8), 0.5);   // thread height
+            AddParam(param, h.param(9), 0.5);   // thread depth
+            AddParam(param, h.param(10), 2.0);  // pitch
+            AddParam(param, h.param(11), 0.0);  // tip height (reserved)
+            AddParam(param, h.param(12), 12.0); // cap top diameter
+            AddParam(param, h.param(13), 0.0);  // cap depth (0 = disabled)
+            AddParam(param, h.param(14), 10.0); // cap bottom diameter
+            return;
+        }
+
         case Type::TRANSLATE: {
             // inherit meshCombine from source group
             Group *srcg = SK.GetGroup(opA);
@@ -898,7 +985,8 @@ void Group::GenerateEquations(IdList<Equation,hEquation> *l) {
             Expr::From(h.param(5)),
             Expr::From(h.param(6)) };
         AddEq(l, (q.Magnitude())->Minus(Expr::From(1)), 0);
-    } else if(type == Type::ROTATE || type == Type::REVOLVE || type == Type::HELIX) {
+    } else if(type == Type::ROTATE || type == Type::REVOLVE ||
+              type == Type::HELIX  || type == Type::THREAD) {
         // The axis and center of rotation are specified numerically
 #define EC(x) (Expr::From(x))
 #define EP(x) (Expr::From(h.param(x)))
@@ -906,12 +994,29 @@ void Group::GenerateEquations(IdList<Equation,hEquation> *l) {
         AddEq(l, (orig.x)->Minus(EP(0)), 0);
         AddEq(l, (orig.y)->Minus(EP(1)), 1);
         AddEq(l, (orig.z)->Minus(EP(2)), 2);
-        // param 3 is the angle, which is free
-        Vector axis = SK.GetEntity(predef.entityB)->VectorGetNum();
-        axis = axis.WithMagnitude(1);
-        AddEq(l, (EC(axis.x))->Minus(EP(4)), 3);
-        AddEq(l, (EC(axis.y))->Minus(EP(5)), 4);
-        AddEq(l, (EC(axis.z))->Minus(EP(6)), 5);
+        if(type == Type::THREAD) {
+            if(predef.entityB != Entity::FREE_IN_3D) {
+                Entity *axisEntity = SK.GetEntity(predef.entityB);
+                if(!axisEntity->IsFace()) {
+                    Vector axis = axisEntity->VectorGetNum();
+                    if(axis.Magnitude() > LENGTH_EPS) {
+                        axis = axis.WithMagnitude(1);
+                    } else {
+                        axis = Vector::From(0, 0, 1);
+                    }
+                    AddEq(l, (EC(axis.x))->Minus(EP(3)), 3);
+                    AddEq(l, (EC(axis.y))->Minus(EP(4)), 4);
+                    AddEq(l, (EC(axis.z))->Minus(EP(5)), 5);
+                }
+            }
+        } else {
+            // param 3 is the angle, which is free
+            Vector axis = SK.GetEntity(predef.entityB)->VectorGetNum();
+            axis = axis.WithMagnitude(1);
+            AddEq(l, (EC(axis.x))->Minus(EP(4)), 3);
+            AddEq(l, (EC(axis.y))->Minus(EP(5)), 4);
+            AddEq(l, (EC(axis.z))->Minus(EP(6)), 5);
+        }
 #undef EC
 #undef EP
         if(type == Type::HELIX) {

@@ -696,6 +696,138 @@ bool SolveSpaceUI::RecomputeConstraintExpressions(std::string *error, bool apply
     return true;
 }
 
+static const char *ThreadParameterName(int paramIndex) {
+    switch(paramIndex) {
+        case 6: return "diameter";
+        case 7: return "length";
+        case 8: return "thread height";
+        case 9: return "thread depth";
+        case 10: return "pitch";
+        case 11: return "tip height";
+        case 12: return "cap top diameter";
+        case 13: return "cap depth";
+        case 14: return "cap bottom diameter";
+        default: return "unknown";
+    }
+}
+
+static bool ValidateThreadParameterMmValue(int paramIndex, double valueMm, std::string *error) {
+    if((paramIndex == 6 || paramIndex == 7 || paramIndex == 10) && valueMm <= LENGTH_EPS) {
+        if(error) {
+            *error = ssprintf("Thread parameter '%s' must be positive",
+                              ThreadParameterName(paramIndex));
+        }
+        return false;
+    }
+    if((paramIndex == 8 || paramIndex == 9 || paramIndex == 11 ||
+        paramIndex == 12 || paramIndex == 13 || paramIndex == 14) && valueMm < 0.0) {
+        if(error) {
+            *error = ssprintf("Thread parameter '%s' must be zero or positive",
+                              ThreadParameterName(paramIndex));
+        }
+        return false;
+    }
+    return true;
+}
+
+bool SolveSpaceUI::RecomputeThreadParameterExpressions(std::string *error, bool apply) {
+    std::unordered_map<std::string, double> userParamValues;
+    if(!EvaluateAllUserParameters(&userParamValues, error)) {
+        return false;
+    }
+
+    struct PendingValue {
+        hGroup group;
+        int paramIndex;
+        double valueMm;
+    };
+    std::vector<PendingValue> computedValues;
+
+    for(const Group &group : SK.group) {
+        if(group.type != Group::Type::THREAD) continue;
+
+        // A newly created thread group may not have had all params materialized yet
+        // when this pre-pass runs; defer expression handling until they exist.
+        if(SK.param.FindByIdNoOops(group.h.param(6)) == nullptr) {
+            continue;
+        }
+
+        double threadParamVals[15] = {};
+        for(int paramIndex = 6; paramIndex <= 14; paramIndex++) {
+            if(Param *p = SK.param.FindByIdNoOops(group.h.param(paramIndex))) {
+                threadParamVals[paramIndex] = p->val;
+            }
+        }
+
+        for(int paramIndex = 6; paramIndex <= 14; paramIndex++) {
+            const std::string &expr = group.ThreadParamExpression(paramIndex);
+            if(expr.empty()) continue;
+            if(SK.param.FindByIdNoOops(group.h.param(paramIndex)) == nullptr) {
+                continue;
+            }
+
+            double expressionValue = 0;
+            std::string evaluateError;
+            if(!EvaluateExpressionWithUserParameters(expr, &userParamValues,
+                                                     &expressionValue, &evaluateError)) {
+                if(error) {
+                    *error = ssprintf("Thread group g%03x (%s): %s",
+                                      group.h.v, ThreadParameterName(paramIndex),
+                                      evaluateError.c_str());
+                }
+                return false;
+            }
+
+            double valueMm = expressionValue * MmPerUnit();
+            if(!ValidateThreadParameterMmValue(paramIndex, valueMm, error)) {
+                if(error) {
+                    std::string validationError = *error;
+                    *error = ssprintf("Thread group g%03x: %s",
+                                      group.h.v, validationError.c_str());
+                }
+                return false;
+            }
+
+            threadParamVals[paramIndex] = valueMm;
+            computedValues.push_back({ group.h, paramIndex, valueMm });
+        }
+
+        if(threadParamVals[13] > LENGTH_EPS) {
+            if(threadParamVals[12] <= LENGTH_EPS) {
+                if(error) {
+                    *error = ssprintf("Thread group g%03x: cap top diameter must be positive "
+                                      "when cap depth is nonzero", group.h.v);
+                }
+                return false;
+            }
+            if(threadParamVals[14] <= LENGTH_EPS) {
+                if(error) {
+                    *error = ssprintf("Thread group g%03x: cap bottom diameter must be positive "
+                                      "when cap depth is nonzero", group.h.v);
+                }
+                return false;
+            }
+            if(threadParamVals[14] >= threadParamVals[12] - LENGTH_EPS) {
+                if(error) {
+                    *error = ssprintf("Thread group g%03x: cap bottom diameter must be smaller "
+                                      "than cap top diameter", group.h.v);
+                }
+                return false;
+            }
+        }
+    }
+
+    if(apply) {
+        for(const PendingValue &entry : computedValues) {
+            if(Param *p = SK.param.FindByIdNoOops(entry.group.param(entry.paramIndex))) {
+                p->val = entry.valueMm;
+            }
+        }
+    }
+
+    return true;
+}
+
 double SolveSpaceUI::ExprToMm(Expr *e) {
     return (e->Eval()) * MmPerUnit();
 }
