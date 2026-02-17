@@ -870,6 +870,7 @@ void Group::Generate(EntityList *entity, ParamList *param)
             AddParam(param, h.param(12), 12.0); // cap top diameter
             AddParam(param, h.param(13), 0.0);  // cap depth (0 = disabled)
             AddParam(param, h.param(14), 10.0); // cap bottom diameter
+            AddParam(param, h.param(15), 0.0);  // hollow wall thickness (0 = disabled)
             return;
         }
 

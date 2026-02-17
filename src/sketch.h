@@ -210,7 +210,7 @@ public:
     double      valA;
     double      valB;
     double      valC;
-    std::array<std::string, 9> threadParamExpr;
+    std::array<std::string, 10> threadParamExpr;
     RgbaColor   color;
 
     struct {
@@ -336,11 +336,11 @@ public:
     Vector ExtrusionGetVector();
     void ExtrusionForceVectorTo(const Vector &v);
     std::string &ThreadParamExpression(int paramIndex) {
-        ssassert(paramIndex >= 6 && paramIndex <= 14, "Invalid thread parameter index");
+        ssassert(paramIndex >= 6 && paramIndex <= 15, "Invalid thread parameter index");
         return threadParamExpr[paramIndex - 6];
     }
     const std::string &ThreadParamExpression(int paramIndex) const {
-        ssassert(paramIndex >= 6 && paramIndex <= 14, "Invalid thread parameter index");
+        ssassert(paramIndex >= 6 && paramIndex <= 15, "Invalid thread parameter index");
         return threadParamExpr[paramIndex - 6];
     }
 

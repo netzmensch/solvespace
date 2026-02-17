@@ -701,12 +701,13 @@ static const char *ThreadParameterName(int paramIndex) {
         case 6: return "diameter";
         case 7: return "length";
         case 8: return "thread height";
-        case 9: return "thread depth";
+        case 9: return "thread depth (auto)";
         case 10: return "pitch";
         case 11: return "tip height";
         case 12: return "cap top diameter";
         case 13: return "cap depth";
         case 14: return "cap bottom diameter";
+        case 15: return "hollow wall thickness";
         default: return "unknown";
     }
 }
@@ -720,7 +721,8 @@ static bool ValidateThreadParameterMmValue(int paramIndex, double valueMm, std::
         return false;
     }
     if((paramIndex == 8 || paramIndex == 9 || paramIndex == 11 ||
-        paramIndex == 12 || paramIndex == 13 || paramIndex == 14) && valueMm < 0.0) {
+        paramIndex == 12 || paramIndex == 13 || paramIndex == 14 ||
+        paramIndex == 15) && valueMm < 0.0) {
         if(error) {
             *error = ssprintf("Thread parameter '%s' must be zero or positive",
                               ThreadParameterName(paramIndex));
@@ -752,15 +754,27 @@ bool SolveSpaceUI::RecomputeThreadParameterExpressions(std::string *error, bool 
             continue;
         }
 
-        double threadParamVals[15] = {};
-        for(int paramIndex = 6; paramIndex <= 14; paramIndex++) {
+        double threadParamVals[16] = {};
+        for(int paramIndex = 6; paramIndex <= 15; paramIndex++) {
             if(Param *p = SK.param.FindByIdNoOops(group.h.param(paramIndex))) {
                 threadParamVals[paramIndex] = p->val;
             }
         }
+        // Depth is internally locked to the thread height.
+        threadParamVals[9] = threadParamVals[8];
+        bool depthQueued = false;
+        auto QueueDepthSync = [&](double valueMm) {
+            threadParamVals[9] = valueMm;
+            computedValues.push_back({ group.h, 9, valueMm });
+            depthQueued = true;
+        };
 
-        for(int paramIndex = 6; paramIndex <= 14; paramIndex++) {
-            const std::string &expr = group.ThreadParamExpression(paramIndex);
+        for(int paramIndex = 6; paramIndex <= 15; paramIndex++) {
+            if(paramIndex == 9) continue;
+
+            const std::string &expr = (paramIndex == 8 && group.ThreadParamExpression(8).empty())
+                                          ? group.ThreadParamExpression(9) // legacy fallback
+                                          : group.ThreadParamExpression(paramIndex);
             if(expr.empty()) continue;
             if(SK.param.FindByIdNoOops(group.h.param(paramIndex)) == nullptr) {
                 continue;
@@ -790,6 +804,21 @@ bool SolveSpaceUI::RecomputeThreadParameterExpressions(std::string *error, bool 
 
             threadParamVals[paramIndex] = valueMm;
             computedValues.push_back({ group.h, paramIndex, valueMm });
+            if(paramIndex == 8) {
+                QueueDepthSync(valueMm);
+            }
+        }
+
+        if(!depthQueued && fabs(threadParamVals[9] - threadParamVals[8]) > LENGTH_EPS) {
+            QueueDepthSync(threadParamVals[8]);
+        }
+
+        if(threadParamVals[8] >= (threadParamVals[6] * 0.5) - LENGTH_EPS) {
+            if(error) {
+                *error = ssprintf("Thread group g%03x: thread height must be smaller than "
+                                  "half of thread diameter", group.h.v);
+            }
+            return false;
         }
 
         if(threadParamVals[13] > LENGTH_EPS) {
@@ -811,6 +840,40 @@ bool SolveSpaceUI::RecomputeThreadParameterExpressions(std::string *error, bool 
                 if(error) {
                     *error = ssprintf("Thread group g%03x: cap bottom diameter must be smaller "
                                       "than cap top diameter", group.h.v);
+                }
+                return false;
+            }
+        }
+
+        if(threadParamVals[15] > LENGTH_EPS) {
+            if(group.meshCombine == Group::CombineAs::DIFFERENCE) {
+                if(error) {
+                    *error = ssprintf("Thread group g%03x: hollow core is only available for "
+                                      "male threads", group.h.v);
+                }
+                return false;
+            }
+            if(threadParamVals[11] > LENGTH_EPS) {
+                if(error) {
+                    *error = ssprintf("Thread group g%03x: hollow core requires tip to be "
+                                      "disabled", group.h.v);
+                }
+                return false;
+            }
+
+            double nominalRadius = threadParamVals[6] * 0.5;
+            double coreRadius = nominalRadius - threadParamVals[9];
+            if(coreRadius <= LENGTH_EPS) {
+                if(error) {
+                    *error = ssprintf("Thread group g%03x: thread core radius must be positive "
+                                      "to enable hollow core", group.h.v);
+                }
+                return false;
+            }
+            if(threadParamVals[15] >= coreRadius - LENGTH_EPS) {
+                if(error) {
+                    *error = ssprintf("Thread group g%03x: hollow wall thickness must be "
+                                      "smaller than thread core radius", group.h.v);
                 }
                 return false;
             }

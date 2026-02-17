@@ -462,17 +462,19 @@ void Group::GenerateShellAndMesh() {
         double diameter = std::max(SK.GetParam(h.param(6))->val, 1e-6);
         double length = std::max(SK.GetParam(h.param(7))->val, 0.0);
         double threadHeight = std::max(SK.GetParam(h.param(8))->val, 0.0);
-        double threadDepth = std::max(SK.GetParam(h.param(9))->val, 0.0);
+        double threadDepth = threadHeight;
         double pitch = std::max(SK.GetParam(h.param(10))->val, 1e-6);
         double tipHeight = std::max(SK.GetParam(h.param(11))->val, 0.0);
         double capTopDiameter = std::max(SK.GetParam(h.param(12))->val, 0.0);
         double capDepth = std::max(SK.GetParam(h.param(13))->val, 0.0);
         double capBottomDiameter = std::max(SK.GetParam(h.param(14))->val, 0.0);
+        double hollowWallThickness = std::max(SK.GetParam(h.param(15))->val, 0.0);
         bool tipEnabled = (tipHeight > LENGTH_EPS);
         bool capEnabled = (capDepth > LENGTH_EPS &&
                            capTopDiameter > LENGTH_EPS &&
                            capBottomDiameter > LENGTH_EPS &&
                            capBottomDiameter < capTopDiameter - LENGTH_EPS);
+        bool hollowEnabled = (!femaleThread && !tipEnabled && hollowWallThickness > LENGTH_EPS);
         double effectiveThreadLength = length;
         if(capEnabled) {
             effectiveThreadLength = std::max(effectiveThreadLength - capDepth, 0.0);
@@ -482,11 +484,16 @@ void Group::GenerateShellAndMesh() {
         }
         Vector threadBase = capEnabled ? pt.Plus(axis.ScaledBy(capDepth)) : pt;
         Vector threadEnd = threadBase.Plus(axis.ScaledBy(effectiveThreadLength));
-        double nominalRadius = diameter * 0.5;
-        double majorRadius = std::max(nominalRadius + threadHeight, 1e-6);
-        double minorRadius = std::max(nominalRadius - threadDepth, 1e-6);
-        if(majorRadius <= minorRadius + 1e-6) {
-            majorRadius = minorRadius + 1e-6;
+        // Diameter defines the total outer thread diameter (major).
+        // Apply a tiny symmetric diameter clearance for both male and female
+        // thread geometry to avoid coplanar transition seams while keeping
+        // both variants dimensionally consistent with each other.
+        double majorDiameterClearance = 0.05 * SS.MmPerUnit();
+        double effectiveMajorDiameter = std::max(diameter - majorDiameterClearance, 2e-6);
+        double majorRadius = std::max(effectiveMajorDiameter * 0.5, 1e-6);
+        double minorRadius = std::max(majorRadius - threadDepth, 1e-6);
+        if(minorRadius >= majorRadius - 1e-6) {
+            minorRadius = std::max(majorRadius - 1e-6, 1e-6);
         }
 
         Vector u = axis.Normal(0);
@@ -674,6 +681,45 @@ void Group::GenerateShellAndMesh() {
             }
             tipLoopSets.Clear();
             tipProfile.Clear();
+        }
+
+        if(hollowEnabled && !thisShell.IsEmpty()) {
+            double hollowRadius = minorRadius - hollowWallThickness;
+            Vector boreStart = pt;
+            Vector boreEnd = threadEnd;
+            if(hollowRadius > LENGTH_EPS &&
+               boreEnd.Minus(boreStart).Magnitude() > LENGTH_EPS) {
+                SBezierList boreProfile = {};
+                Vector p0 = boreStart;
+                Vector p1 = boreStart.Plus(u.ScaledBy(hollowRadius));
+                Vector p2 = boreEnd.Plus(u.ScaledBy(hollowRadius));
+                Vector p3 = boreEnd;
+                AddLineBezier(&boreProfile, p0, p1);
+                AddLineBezier(&boreProfile, p1, p2);
+                AddLineBezier(&boreProfile, p2, p3);
+                AddLineBezier(&boreProfile, p3, p0);
+
+                SBezierLoopSetSet boreLoopSets = {};
+                if(BuildLoopSetsFromBeziers(&boreProfile, &boreLoopSets)) {
+                    SShell boreShell = {};
+                    for(SBezierLoopSet *sbls = boreLoopSets.l.First(); sbls;
+                        sbls = boreLoopSets.l.NextAfter(sbls)) {
+                        boreShell.MakeFromRevolutionOf(sbls, boreStart, axis, color, this);
+                    }
+                    if(!boreShell.IsEmpty()) {
+                        SShell hollowed = {};
+                        hollowed.MakeFromDifferenceOf(&thisShell, &boreShell);
+                        if(!hollowed.booleanFailed && !hollowed.IsEmpty()) {
+                            thisShell.Clear();
+                            thisShell.MakeFromCopyOf(&hollowed);
+                        }
+                        hollowed.Clear();
+                    }
+                    boreShell.Clear();
+                }
+                boreLoopSets.Clear();
+                boreProfile.Clear();
+            }
         }
     } else if(type == Type::LINKED) {
         // The imported shell or mesh are copied over, with the appropriate

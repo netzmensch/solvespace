@@ -72,14 +72,25 @@ bool ValidateThreadParameterInput(const Group *g, int paramIndex, double valueMm
         return false;
     }
     if((paramIndex == 8 || paramIndex == 9 || paramIndex == 11 ||
-        paramIndex == 12 || paramIndex == 13 || paramIndex == 14) && valueMm < 0.0) {
+        paramIndex == 12 || paramIndex == 13 || paramIndex == 14 ||
+        paramIndex == 15) && valueMm < 0.0) {
         Error(_("Value must be zero or positive."));
         return false;
     }
 
     auto ValueAt = [&](int idx) {
+        if(idx == 8 || idx == 9) {
+            // Thread depth is internally locked to thread height.
+            if(paramIndex == 8 || paramIndex == 9) return valueMm;
+            return SK.GetParam(g->h.param(8))->val;
+        }
         return (idx == paramIndex) ? valueMm : SK.GetParam(g->h.param(idx))->val;
     };
+
+    if(ValueAt(8) >= (ValueAt(6) * 0.5) - LENGTH_EPS) {
+        Error(_("Thread height must be smaller than half of thread diameter."));
+        return false;
+    }
 
     if(ValueAt(13) > LENGTH_EPS) {
         if(ValueAt(12) <= LENGTH_EPS) {
@@ -92,6 +103,27 @@ bool ValidateThreadParameterInput(const Group *g, int paramIndex, double valueMm
         }
         if(ValueAt(14) >= ValueAt(12) - LENGTH_EPS) {
             Error(_("Cap bottom diameter must be smaller than cap top diameter."));
+            return false;
+        }
+    }
+
+    if(ValueAt(15) > LENGTH_EPS) {
+        if(g->meshCombine == Group::CombineAs::DIFFERENCE) {
+            Error(_("Hollow core is only available for male threads."));
+            return false;
+        }
+        if(ValueAt(11) > LENGTH_EPS) {
+            Error(_("Hollow core requires tip to be disabled."));
+            return false;
+        }
+        double nominalRadius = ValueAt(6) * 0.5;
+        double coreRadius = nominalRadius - ValueAt(9);
+        if(coreRadius <= LENGTH_EPS) {
+            Error(_("Thread core radius must be positive to enable hollow core."));
+            return false;
+        }
+        if(ValueAt(15) >= coreRadius - LENGTH_EPS) {
+            Error(_("Wall thickness must be smaller than thread core radius."));
             return false;
         }
     }
@@ -358,8 +390,16 @@ void TextWindow::ScreenChangeGroupOption(int link, uint32_t v) {
         case 'k': g->skipFirst = true; break;
         case 'K': g->skipFirst = false; break;
 
-        case 'm': g->meshCombine = Group::CombineAs::UNION; break;
-        case 'F': g->meshCombine = Group::CombineAs::DIFFERENCE; break;
+        case 'm':
+            g->meshCombine = Group::CombineAs::UNION;
+            break;
+        case 'F':
+            g->meshCombine = Group::CombineAs::DIFFERENCE;
+            if(g->type == Group::Type::THREAD) {
+                SK.GetParam(g->h.param(15))->val = 0.0;
+                g->ThreadParamExpression(15).clear();
+            }
+            break;
         case 't':
             if(g->type == Group::Type::THREAD) {
                 double currentTip = SK.GetParam(g->h.param(11))->val;
@@ -369,6 +409,8 @@ void TextWindow::ScreenChangeGroupOption(int link, uint32_t v) {
                 } else {
                     SK.GetParam(g->h.param(11))->val = 2.0 * SS.MmPerUnit();
                     g->ThreadParamExpression(11).clear();
+                    SK.GetParam(g->h.param(15))->val = 0.0;
+                    g->ThreadParamExpression(15).clear();
                 }
             }
             break;
@@ -386,6 +428,24 @@ void TextWindow::ScreenChangeGroupOption(int link, uint32_t v) {
                     g->ThreadParamExpression(12).clear();
                     g->ThreadParamExpression(13).clear();
                     g->ThreadParamExpression(14).clear();
+                }
+            }
+            break;
+        case 'H':
+            if(g->type == Group::Type::THREAD) {
+                double currentWall = SK.GetParam(g->h.param(15))->val;
+                bool maleThread = (g->meshCombine != Group::CombineAs::DIFFERENCE);
+                bool tipEnabled = SK.GetParam(g->h.param(11))->val > LENGTH_EPS;
+                if(currentWall > LENGTH_EPS) {
+                    SK.GetParam(g->h.param(15))->val = 0.0;
+                    g->ThreadParamExpression(15).clear();
+                } else if(!maleThread) {
+                    Error(_("Hollow core is only available for male threads."));
+                } else if(tipEnabled) {
+                    Error(_("Disable tip before enabling hollow core."));
+                } else {
+                    SK.GetParam(g->h.param(15))->val = 3.0 * SS.MmPerUnit();
+                    g->ThreadParamExpression(15).clear();
                 }
             }
             break;
@@ -476,7 +536,11 @@ void TextWindow::ScreenChangeThreadParameter(int link, uint32_t v) {
     (void)link;
     Group *g = SK.GetGroup(SS.TW.shown.group);
     int paramIndex = (int)v;
-    if(paramIndex < 6 || paramIndex > 14) {
+    if(paramIndex == 9) {
+        // Depth is user-hidden and follows thread height.
+        paramIndex = 8;
+    }
+    if(paramIndex < 6 || paramIndex > 15) {
         Error(_("Unexpected thread parameter selected."));
         return;
     }
@@ -659,10 +723,6 @@ void TextWindow::ShowGroupInfo() {
                SK.GetParam(g->h.param(8))->val / SS.MmPerUnit(),
                ThreadExpressionSuffix(g, 8).c_str(),
                8, &TextWindow::ScreenChangeThreadParameter, g->h.v);
-        Printf(false, "%Ba   %Ftthread depth%E  %#%s %Fl%Ll%D%f[change]%E",
-               SK.GetParam(g->h.param(9))->val / SS.MmPerUnit(),
-               ThreadExpressionSuffix(g, 9).c_str(),
-               9, &TextWindow::ScreenChangeThreadParameter, g->h.v);
         Printf(false, "%Ba   %Ftpitch%E    %#%s %Fl%Ll%D%f[change]%E",
                SK.GetParam(g->h.param(10))->val / SS.MmPerUnit(),
                ThreadExpressionSuffix(g, 10).c_str(),
@@ -677,6 +737,20 @@ void TextWindow::ShowGroupInfo() {
                    SK.GetParam(g->h.param(11))->val / SS.MmPerUnit(),
                    ThreadExpressionSuffix(g, 11).c_str(),
                    11, &TextWindow::ScreenChangeThreadParameter, g->h.v);
+        }
+
+        bool maleThread = (g->meshCombine != Group::CombineAs::DIFFERENCE);
+        bool hollowEnabled = SK.GetParam(g->h.param(15))->val > LENGTH_EPS;
+        Printf(false, "   %Fd%f%LH%s  enable hollow core (male only, tip off)",
+               &TextWindow::ScreenChangeGroupOption,
+               hollowEnabled ? CHECK_TRUE : CHECK_FALSE);
+        if(hollowEnabled) {
+            Printf(false, "%Ba   %Ftwall thickness%E %#%s %Fl%Ll%D%f[change]%E",
+                   SK.GetParam(g->h.param(15))->val / SS.MmPerUnit(),
+                   ThreadExpressionSuffix(g, 15).c_str(),
+                   15, &TextWindow::ScreenChangeThreadParameter, g->h.v);
+        } else if(!maleThread || tipEnabled) {
+            Printf(false, "%Ba   %Fg(available only for male thread with tip disabled)%E");
         }
 
         bool capEnabled = SK.GetParam(g->h.param(13))->val > LENGTH_EPS;
@@ -1138,6 +1212,13 @@ void TextWindow::EditControlDone(std::string s) {
 
             g->ThreadParamExpression(paramIndex) = s;
             SK.GetParam(g->h.param(paramIndex))->val = ev;
+            if(paramIndex == 8 || paramIndex == 9) {
+                // Keep depth and height identical to avoid unstable thread geometry.
+                SK.GetParam(g->h.param(8))->val = ev;
+                SK.GetParam(g->h.param(9))->val = ev;
+                g->ThreadParamExpression(8) = s;
+                g->ThreadParamExpression(9) = s;
+            }
             SS.MarkGroupDirty(g->h);
             break;
         }

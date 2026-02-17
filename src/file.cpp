@@ -107,6 +107,7 @@ const SolveSpaceUI::SaveTable SolveSpaceUI::SAVED[] = {
     { 'g',  "Group.threadParamExpr12",  'S',    &(SS.sv.g.threadParamExpr[6]) },
     { 'g',  "Group.threadParamExpr13",  'S',    &(SS.sv.g.threadParamExpr[7]) },
     { 'g',  "Group.threadParamExpr14",  'S',    &(SS.sv.g.threadParamExpr[8]) },
+    { 'g',  "Group.threadParamExpr15",  'S',    &(SS.sv.g.threadParamExpr[9]) },
     { 'g',  "Group.color",              'c',    &(SS.sv.g.color)              },
     { 'g',  "Group.subtype",            'd',    &(SS.sv.g.subtype)            },
     { 'g',  "Group.skipFirst",          'b',    &(SS.sv.g.skipFirst)          },
