@@ -4,6 +4,7 @@
 // Copyright 2018 whitequark
 //-----------------------------------------------------------------------------
 #include <errno.h>
+#include <cctype>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <json-c/json_object.h>
@@ -733,6 +734,7 @@ class GtkEditorOverlay : public Gtk::Fixed {
     Window      *_receiver;
     GtkGLWidget _gl_widget;
     Gtk::Entry  _entry;
+    std::vector<std::string> _suggestions;
 
 public:
     GtkEditorOverlay(Platform::Window *receiver) : _receiver(receiver), _gl_widget(receiver) {
@@ -748,6 +750,10 @@ public:
 
     bool is_editing() const {
         return _entry.is_visible();
+    }
+
+    void set_suggestions(const std::vector<std::string> &suggestions) {
+        _suggestions = suggestions;
     }
 
     void start_editing(int x, int y, int font_height, int min_width, bool is_monospace,
@@ -803,6 +809,62 @@ public:
     }
 
 protected:
+    static bool IsIdentifierCharacter(char c) {
+        return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+    }
+
+    static std::string LongestCommonPrefix(const std::vector<std::string> &values) {
+        if(values.empty()) return "";
+        std::string prefix = values.front();
+        for(size_t i = 1; i < values.size() && !prefix.empty(); i++) {
+            const std::string &candidate = values[i];
+            size_t n = 0;
+            while(n < prefix.size() && n < candidate.size() && prefix[n] == candidate[n]) {
+                n++;
+            }
+            prefix.resize(n);
+        }
+        return prefix;
+    }
+
+    bool try_complete() {
+        if(_suggestions.empty()) return false;
+
+        std::string text = _entry.get_text();
+        int cursor = _entry.get_position();
+        if(cursor < 0 || (size_t)cursor > text.size()) return false;
+
+        size_t start = (size_t)cursor;
+        while(start > 0 && IsIdentifierCharacter(text[start - 1])) {
+            start--;
+        }
+        size_t end = (size_t)cursor;
+        while(end < text.size() && IsIdentifierCharacter(text[end])) {
+            end++;
+        }
+
+        std::string prefix = text.substr(start, (size_t)cursor - start);
+        if(prefix.empty()) return false;
+
+        std::vector<std::string> matches;
+        for(const std::string &candidate : _suggestions) {
+            if(candidate.size() >= prefix.size() &&
+               candidate.compare(0, prefix.size(), prefix) == 0) {
+                matches.push_back(candidate);
+            }
+        }
+        if(matches.empty()) return false;
+
+        std::string replacement = (matches.size() == 1) ? matches.front()
+                                                        : LongestCommonPrefix(matches);
+        if(replacement.size() <= prefix.size()) return false;
+
+        text.replace(start, end - start, replacement);
+        _entry.set_text(text);
+        _entry.set_position((int)(start + replacement.size()));
+        return true;
+    }
+
     bool on_key_press_event(GdkEventKey *gdk_event) override {
         guint keyval;
         gdk_event_get_keyval((GdkEvent*)gdk_event, &keyval);
@@ -810,6 +872,9 @@ protected:
         if(is_editing()) {
             if(keyval == GDK_KEY_Escape) {
                 return _gl_widget.event((GdkEvent *)gdk_event);
+            } else if(keyval == GDK_KEY_Tab || keyval == GDK_KEY_ISO_Left_Tab) {
+                try_complete();
+                return true;
             } else {
                 _entry.event((GdkEvent *)gdk_event);
             }
@@ -1126,7 +1191,7 @@ public:
     }
 
     void SetEditorSuggestions(const std::vector<std::string> &suggestions) override {
-        // Not implemented for GTK editor.
+        gtkWindow.get_editor_overlay().set_suggestions(suggestions);
     }
 
     void SetScrollbarVisible(bool visible) override {

@@ -11,6 +11,7 @@
 #include <commctrl.h>
 #include <commdlg.h>
 #include <shellapi.h>
+#include <cctype>
 
 // Macros to compile under XP
 #if !defined(LSTATUS)
@@ -543,7 +544,66 @@ public:
 
     std::shared_ptr<MenuBarImplWin32> menuBar;
     std::string tooltipText;
+    std::vector<std::string> editorSuggestions;
     bool scrollbarVisible = false;
+
+    static bool IsIdentifierCharacter(char c) {
+        return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+    }
+
+    static std::string LongestCommonPrefix(const std::vector<std::string> &values) {
+        if(values.empty()) return "";
+        std::string prefix = values.front();
+        for(size_t i = 1; i < values.size() && !prefix.empty(); i++) {
+            const std::string &candidate = values[i];
+            size_t n = 0;
+            while(n < prefix.size() && n < candidate.size() && prefix[n] == candidate[n]) {
+                n++;
+            }
+            prefix.resize(n);
+        }
+        return prefix;
+    }
+
+    static bool ApplyEditorCompletion(const std::vector<std::string> &suggestions,
+                                      std::string *text, size_t *cursorPos) {
+        if(suggestions.empty() || *cursorPos > text->size()) {
+            return false;
+        }
+        size_t start = *cursorPos;
+        while(start > 0 && IsIdentifierCharacter((*text)[start - 1])) {
+            start--;
+        }
+        size_t end = *cursorPos;
+        while(end < text->size() && IsIdentifierCharacter((*text)[end])) {
+            end++;
+        }
+        std::string prefix = text->substr(start, *cursorPos - start);
+        if(prefix.empty()) {
+            return false;
+        }
+
+        std::vector<std::string> matches;
+        for(const std::string &candidate : suggestions) {
+            if(candidate.size() >= prefix.size() &&
+               candidate.compare(0, prefix.size(), prefix) == 0) {
+                matches.push_back(candidate);
+            }
+        }
+        if(matches.empty()) {
+            return false;
+        }
+
+        std::string replacement = (matches.size() == 1) ? matches.front()
+                                                        : LongestCommonPrefix(matches);
+        if(replacement.size() <= prefix.size()) {
+            return false;
+        }
+
+        text->replace(start, end - start, replacement);
+        *cursorPos = start + replacement.size();
+        return true;
+    }
 
     static void RegisterWindowClass() {
         static bool registered;
@@ -1081,6 +1141,27 @@ public:
         sscheck(window = (WindowImplWin32 *)GetWindowLongPtr(hWindow, 0));
 
         switch(msg) {
+            case WM_KEYDOWN:
+                if(wParam == VK_TAB) {
+                    int length;
+                    sscheck(length = GetWindowTextLength(h));
+                    std::wstring textW;
+                    textW.resize(length);
+                    sscheck(GetWindowTextW(h, &textW[0], textW.length() + 1));
+
+                    DWORD selectionStart = 0, selectionEnd = 0;
+                    SendMessageW(h, EM_GETSEL, (WPARAM)&selectionStart, (LPARAM)&selectionEnd);
+                    size_t cursorPos = (size_t)selectionEnd;
+                    std::string text = Narrow(textW);
+                    if(ApplyEditorCompletion(window->editorSuggestions, &text, &cursorPos)) {
+                        std::wstring completedW = Widen(text);
+                        sscheck(SendMessageW(h, WM_SETTEXT, 0, (LPARAM)completedW.c_str()));
+                        sscheck(SendMessageW(h, EM_SETSEL, cursorPos, cursorPos));
+                    }
+                    return 0;
+                }
+                break;
+
             case WM_CHAR:
                 if(wParam == VK_RETURN) {
                     if(window->onEditingDone) {
@@ -1350,7 +1431,7 @@ public:
     }
 
     void SetEditorSuggestions(const std::vector<std::string> &suggestions) override {
-        // Not implemented for Win32 editor.
+        editorSuggestions = suggestions;
     }
 
     void SetScrollbarVisible(bool visible) override {
