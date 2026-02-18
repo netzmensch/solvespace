@@ -17,6 +17,7 @@
 #include <QMouseEvent>
 #include <QOpenGLWidget>
 #include <QScrollBar>
+#include <vector>
 
 
 namespace SolveSpace {
@@ -32,6 +33,7 @@ public:
     void startEditing(double xd, double yd, int fontHeight, int minWidth,
                       bool isMonoSpace, const std::string& val);
     void stopEditing();
+    void setEditorSuggestions(const std::vector<std::string> &suggestions);
 
     QSize minimumSizeHint() const {
         return QSize(50, 50);
@@ -84,10 +86,12 @@ protected:
     }
 
     void updateSlvSpaceKeyEvent(QKeyEvent* event);
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
 public:
     Platform::Window* receiver;
     QLineEdit* entry;
+    std::vector<std::string> editorSuggestions;
     double pixelRatio;
     double pixelRatioI;
     MouseEvent    slvMouseEvent;
