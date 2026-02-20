@@ -3,10 +3,10 @@ name: Test
 on:
   pull_request:
     branches:
-      - master
+      - master_nitro
   push:
     branches-ignore:
-      - master
+      - master_nitro
     tags-ignore:
       - v*
 
