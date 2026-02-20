@@ -36,9 +36,14 @@ app="bin/SolveSpaceNitro.app"
 dmg="bin/SolveSpaceNitro.dmg"
 bundle_id="com.solvespace.nitro"
 
-if [ "$CI" = "true" ]; then
+USE_DEVELOPER_SIGNING="false"
+if [ -n "${MACOS_CERTIFICATE_P12:-}" ] && [ -n "${MACOS_CERTIFICATE_PASSWORD:-}" ] && [ -n "${MACOS_DEVELOPER_ID:-}" ]; then
+    USE_DEVELOPER_SIGNING="true"
+fi
+
+if [ "$CI" = "true" ] && [ "$USE_DEVELOPER_SIGNING" = "true" ]; then
     # get the signing certificate (this is the Developer ID:Application: Your Name, exported to a p12 file, then converted to base64, e.g.: cat ~/Desktop/certificate.p12 | base64 | pbcopy)
-    echo $MACOS_CERTIFICATE_P12 | base64 --decode > certificate.p12
+    echo "$MACOS_CERTIFICATE_P12" | base64 --decode > certificate.p12
 
     # create a keychain
     security create-keychain -p secret build.keychain
@@ -54,40 +59,44 @@ if [ "$CI" = "true" ]; then
     security find-identity -v
 fi
 
+SIGN_ID="-"
+if [ "$USE_DEVELOPER_SIGNING" = "true" ]; then
+    SIGN_ID="${MACOS_DEVELOPER_ID}"
+fi
+
 # sign openmp
-codesign -s "${MACOS_DEVELOPER_ID}" --timestamp --options runtime -f --deep "${openmp}"
+codesign -s "${SIGN_ID}" --timestamp --options runtime -f --deep "${openmp}"
 
 # sign the .app
-codesign -s "${MACOS_DEVELOPER_ID}" --timestamp --options runtime -f --deep "${app}"
+codesign -s "${SIGN_ID}" --timestamp --options runtime -f --deep "${app}"
 
 # create the .dmg from the signed .app
 hdiutil create -srcfolder "${app}" "${dmg}"
 
 # sign the .dmg
-codesign -s "${MACOS_DEVELOPER_ID}" --timestamp --options runtime -f --deep "${dmg}"
+codesign -s "${SIGN_ID}" --timestamp --options runtime -f --deep "${dmg}"
 
-if ! command -v xcrun >/dev/null || ! xcrun --find notarytool >/dev/null; then
-    echo "Notarytool is not present in the system. Notarization has failed."
-    exit 1
+if [ "$USE_DEVELOPER_SIGNING" != "true" ]; then
+    echo "Skipping notarization because macOS signing secrets are not configured."
+    exit 0
 fi
 
-# Submit the package for notarization
-notarization_output=$(
-    xcrun notarytool submit "${dmg}" \
-        --apple-id "hello@koenschmeets.nl" \
-        --password "${MACOS_APPSTORE_APP_PASSWORD}" \
-        --team-id "8X77K9NDG3" \
-        --wait 2>&1)
-
-if [ $? -eq 0 ]; then
-    # Extract the operation ID from the output
-    operation_id=$(echo "$notarization_output" | awk '/RequestUUID/ {print $NF}')
-    echo "Notarization submitted. Operation ID: $operation_id"
+if [ -z "${MACOS_APPSTORE_APP_PASSWORD:-}" ] || [ -z "${MACOS_APPSTORE_USERNAME:-}" ]; then
+    echo "Skipping notarization because App Store credentials are not configured."
     exit 0
-  else
-    echo "Notarization failed. Error: $notarization_output"
-    exit 1
-  fi
+fi
+
+if ! command -v xcrun >/dev/null || ! xcrun --find notarytool >/dev/null; then
+    echo "Notarytool is not present in the system. Skipping notarization."
+    exit 0
+fi
+
+# Submit the package for notarization.
+xcrun notarytool submit "${dmg}" \
+    --apple-id "${MACOS_APPSTORE_USERNAME}" \
+    --password "${MACOS_APPSTORE_APP_PASSWORD}" \
+    --team-id "8X77K9NDG3" \
+    --wait
 
 # staple
 xcrun stapler staple "${dmg}"
