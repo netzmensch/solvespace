@@ -744,7 +744,10 @@ ExprParser::Token ExprParser::Lex(std::string *error) {
 
     Token t = Token::From();
     char c = PeekChar();
-    if(isalpha((unsigned char)c) || c == '_') {
+    if(isupper((unsigned char)c)) {
+        std::string n = ReadWord();
+        t = Token::From(TokenType::OPERAND, Expr::Op::VARIABLE);
+    } else if(isalpha((unsigned char)c) || (c == '_' && resolver != nullptr)) {
         double resolvedValue = 0;
         std::string s = ReadWord();
         if(s == "sqrt") {

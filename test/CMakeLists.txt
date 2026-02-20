@@ -72,6 +72,11 @@ add_executable(solvespace-testsuite
     ${testsuite_SOURCES}
     $<TARGET_PROPERTY:resources,EXTRA_SOURCES>)
 
+if(WIN32 AND NOT BUILD_SHARED_LIBS)
+    target_compile_definitions(solvespace-testsuite PRIVATE
+        CAIRO_WIN32_STATIC_BUILD)
+endif()
+
 target_link_libraries(solvespace-testsuite
     solvespace-headless
     ${COVERAGE_LIBRARY})

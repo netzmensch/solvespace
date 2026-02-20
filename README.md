@@ -1,6 +1,55 @@
-# SolveSpace
+# SolveSpace Nitro
 
 <img src="res/freedesktop/solvespace-scalable.svg" width="70" height="70" alt="SolveSpace Logo" align="left">
+
+This is a fork of [SolveSpace][], a parametric
+2d/3d CAD tool.
+
+I was missing some features to fully switch over from commercial CAD tools to this awesome piece of software. Since it's only maintained by a few people and I cannot really contribute to a CPP application, I used this as an experiment with AI coding.
+
+To make it clear: SolveSpace Nitro is a vibe coded extended version of the original software, I just let the AI add features I was missing.
+
+************* PLEASE BE AWARE ************* 
+
+this is just a preview of how awesome SolveSpace will become even more with those features. There is no intention to get this code merged in the original. So every slvs file you create with this will be very likely not be compatible with the original tool. 
+
+Also please do not annoy the maintainers to merge this code, no one wants to merge vibe coded stuff in it's production code. Please keep that in mind!
+
+************* !!!!!!!!!!!!!!!!!!!!!!!!!!!! ************* 
+
+Please note: this is not extensively tested, I just do some basic tests, and not every possible combination. If you find a bug, use the issues feature here and I'll try to fix it soon. Best tested version will be the mac version, since I use this mainly.
+
+## added Features
+
+### User parameters / variables
+
+In the attribute browser, open the "configuration" page. There you'll find the "user parameters". Define your parameters there and then use them in constraints. You'll notice that there's an auto completion for existing user parameters. You can also use user parameters in other user parameters to make them even more dynamic. 
+
+The beauty of this feature: every time you change the expression of a user parameter, every sketch is recalculated. So you can for example quickly change measurements of your objects or change wall thickness easily, even on complex projects.
+
+### Create sketches out of faces
+
+To create a new sketch, in SolveSpace you have to select a point and optionally two lines to tell the tool where you want to have the sketch. In the Nitro version it's possible to just select a face and then hit the "create sketch" button, just like the big commercial tools do it. It's way more intuitive for new users.
+
+### Thread support
+
+I use SolveSpace for 3d printing. And for building my own housings for electronics and so on, I always love to be able to add threads to connect parts. 
+
+This feature works pretty simple: you create a new sketch on an object/surface and add a single point where the thread should be. Then you select this point and hit the new "Thread" button. There you can choose if this thread is a male (a screw on top of the surface) or female (the thread is cut in the surface below the sketch). In male mode you can optionaly hollow the thread. There's also an option to add a counter sink.
+
+To realize this feature, I let the AI analyze a custom build screw slvs file, and with all the parameters this is just adjusted. There're constellations where the structure will get inconsistent. In that case parts of the thread or the whole thing will turn red. If that happens, change the settings until it's not red anymore.
+
+[solvespace]: https://solvespace.com
+
+### Improved build scripts
+
+At least on my MacOS system i was not able to fully build all the apps, so I added scripts to be able to (cross)compile all three versions of the tool. I also added most possible caching, especially in the docker supported builds for windows and linux, to speed up the process. You'll find the scripts at /scripts.
+
+----------------------------------------------------------------------
+
+
+
+# SolveSpace
 
 [![Build Status](https://github.com/solvespace/solvespace/workflows/CD/badge.svg)](https://github.com/solvespace/solvespace/actions)
 [![solvespace](https://snapcraft.io/solvespace/badge.svg)](https://snapcraft.io/solvespace)

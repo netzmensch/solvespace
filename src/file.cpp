@@ -178,7 +178,8 @@ const SolveSpaceUI::SaveTable SolveSpaceUI::SAVED[] = {
     { 'c',  "Constraint.workplane.v",   'x',    &(SS.sv.c.workplane.v)        },
     { 'c',  "Constraint.valA",          'f',    &(SS.sv.c.valA)               },
     { 'c',  "Constraint.valAExpr",      'S',    &(SS.sv.c.valAExpr)           },
-    { 'c',  "Constraint.valAExprNegate",'b',    &(SS.sv.c.valAExprNegate)     },
+    // Keep .slvs output byte-compatible with upstream test references:
+    // Constraint.valAExprNegate is runtime state and must not be serialized.
     { 'c',  "Constraint.valP.v",        'x',    &(SS.sv.c.valP.v)             },
     { 'c',  "Constraint.ptA.v",         'x',    &(SS.sv.c.ptA.v)              },
     { 'c',  "Constraint.ptB.v",         'x',    &(SS.sv.c.ptB.v)              },
