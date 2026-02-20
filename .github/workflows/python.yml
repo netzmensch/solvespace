@@ -2,7 +2,7 @@ name: Python
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master_nitro ]
     tags: [ v* ]
   workflow_dispatch:
 

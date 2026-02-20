@@ -1,6 +1,6 @@
 1 VERSIONINFO
-FILEVERSION     ${PROJECT_VERSION_MAJOR},${PROJECT_VERSION_MINOR},0,0
-PRODUCTVERSION  ${PROJECT_VERSION_MAJOR},${PROJECT_VERSION_MINOR},0,0
+FILEVERSION     ${PROJECT_VERSION_MAJOR},${PROJECT_VERSION_MINOR},0,${NITRO_VERSION_REV}
+PRODUCTVERSION  ${PROJECT_VERSION_MAJOR},${PROJECT_VERSION_MINOR},0,${NITRO_VERSION_REV}
 FILEFLAGSMASK   0
 FILEFLAGS       0
 FILEOS          VOS_NT_WINDOWS32
@@ -13,9 +13,9 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "The SolveSpace authors"
             VALUE "ProductName",      "SolveSpaceNitro"
-            VALUE "ProductVersion",   "${PROJECT_VERSION}~${solvespace_GIT_HASH}"
+            VALUE "ProductVersion",   "${SOLVESPACE_NITRO_DISPLAY_VERSION}"
             VALUE "FileDescription",  "SolveSpaceNitro, a parametric 2d/3d CAD"
-            VALUE "FileVersion",      "${PROJECT_VERSION}~${solvespace_GIT_HASH}"
+            VALUE "FileVersion",      "${SOLVESPACE_NITRO_DISPLAY_VERSION}"
             VALUE "OriginalFilename", "solvespace.exe"
             VALUE "InternalName",     "solvespace"
             VALUE "LegalCopyright",   "(c) 2008-2026 Jonathan Westhues and other authors"

@@ -3,7 +3,7 @@ name: CD
 on:
   push:
     branches:
-      - master
+      - master_nitro
   release:
     types:
       - created
@@ -216,15 +216,78 @@ jobs:
     if: "!cancelled() && github.event_name == 'release'"
     runs-on: ubuntu-latest
     steps:
+    - uses: actions/checkout@v4
+    - name: Compute Nitro Version Label
+      id: nitro_version
+      shell: bash
+      run: |
+        set -euo pipefail
+        upstream_minor="$(sed -n 's/^[[:space:]]*VERSION[[:space:]]\+\([0-9]\+\.[0-9]\+\).*/\1/p' CMakeLists.txt | head -n 1)"
+        nitro_rev="$(tr -d '[:space:]' < NITRO_VERSION)"
+        if [[ -z "${upstream_minor}" || ! "${nitro_rev}" =~ ^[0-9]+$ ]]; then
+          echo "Failed to compute Nitro version label" >&2
+          exit 1
+        fi
+        label="${upstream_minor}.0-nitro.${nitro_rev}"
+        echo "label=${label}" >> "$GITHUB_OUTPUT"
+        echo "Nitro release label: ${label}"
     - name: Download All Workflow Artifacts
       uses: actions/download-artifact@v8
-
-    - name: Create release
-      uses: softprops/action-gh-release@v2
+    - name: Get Release Upload URL
+      id: get_upload_url
+      env:
+        event: ${{ toJson(github.event) }}
+      run: |
+        upload_url=$(echo "$event" | jq -r ".release.upload_url")
+        echo "::set-output name=upload_url::$upload_url"
+        echo "Upload URL: $upload_url"
+    - name: Upload SolveSpace.exe
+      uses: actions/upload-release-asset@v1
+      continue-on-error: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        files: |
-          windows_single_core_x86/solvespace_single_core_x86.exe
-          windows_x86/solvespace_x86.exe
-          windows_single_core_x64/solvespace_single_core_x64.exe
-          windows_x64/solvespace_x64.exe
-          macos/SolveSpaceNitro.dmg
+        upload_url: ${{ steps.get_upload_url.outputs.upload_url }}
+        asset_path: windows/solvespace.exe
+        asset_name: SolveSpace-${{ steps.nitro_version.outputs.label }}.exe
+        asset_content_type: binary/octet-stream
+    - name: Upload SolveSpace_single_core.exe
+      uses: actions/upload-release-asset@v1
+      continue-on-error: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.get_upload_url.outputs.upload_url }}
+        asset_path: windows-openmp/solvespace_single_core.exe
+        asset_name: SolveSpace-${{ steps.nitro_version.outputs.label }}_single_core.exe
+        asset_content_type: binary/octet-stream
+    - name: Upload SolveSpace_x64.exe
+      uses: actions/upload-release-asset@v1
+      continue-on-error: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.get_upload_url.outputs.upload_url }}
+        asset_path: windows/solvespace_x64.exe
+        asset_name: SolveSpace-${{ steps.nitro_version.outputs.label }}_x64.exe
+        asset_content_type: binary/octet-stream
+    - name: Upload SolveSpace_single_core_x64.exe
+      uses: actions/upload-release-asset@v1
+      continue-on-error: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.get_upload_url.outputs.upload_url }}
+        asset_path: windows-openmp/solvespace_single_core_x64.exe
+        asset_name: SolveSpace-${{ steps.nitro_version.outputs.label }}_single_core_x64.exe
+        asset_content_type: binary/octet-stream
+    - name: Upload SolveSpace.dmg
+      uses: actions/upload-release-asset@v1
+      continue-on-error: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.get_upload_url.outputs.upload_url }}
+        asset_path: macos/SolveSpaceNitro.dmg
+        asset_name: SolveSpace-${{ steps.nitro_version.outputs.label }}.dmg
+        asset_content_type: binary/octet-stream

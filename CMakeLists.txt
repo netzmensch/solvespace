@@ -45,6 +45,26 @@ project(solvespace
     VERSION 3.2
     LANGUAGES C CXX ASM)
 
+set(NITRO_VERSION_FILE "${CMAKE_SOURCE_DIR}/NITRO_VERSION")
+if(NOT EXISTS "${NITRO_VERSION_FILE}")
+    message(FATAL_ERROR "Missing ${NITRO_VERSION_FILE}. Create it with an integer Nitro revision (e.g. 7).")
+endif()
+
+file(READ "${NITRO_VERSION_FILE}" NITRO_VERSION_RAW)
+string(STRIP "${NITRO_VERSION_RAW}" NITRO_VERSION_REV)
+if(NOT NITRO_VERSION_REV MATCHES "^[0-9]+$")
+    message(FATAL_ERROR "Invalid NITRO_VERSION value '${NITRO_VERSION_REV}'. Expected an integer (e.g. 7).")
+endif()
+
+set(SOLVESPACE_NITRO_SHORT_VERSION
+    "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.0")
+set(SOLVESPACE_NITRO_BUILD_VERSION
+    "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.0.${NITRO_VERSION_REV}")
+set(SOLVESPACE_NITRO_DISPLAY_VERSION
+    "${SOLVESPACE_NITRO_SHORT_VERSION}-nitro.${NITRO_VERSION_REV}+g${solvespace_GIT_HASH}")
+
+message(STATUS "Nitro version: ${SOLVESPACE_NITRO_DISPLAY_VERSION}")
+
 if(EMSCRIPTEN)
     # Enable optimization. Workaround for "too many locals" error when runs in the browser.
     if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "Debug")
