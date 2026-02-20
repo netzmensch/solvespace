@@ -1,9 +1,6 @@
 name: Python
 
 on:
-  push:
-    branches: [ master_nitro ]
-    tags: [ v* ]
   workflow_dispatch:
 
 jobs:

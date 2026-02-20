@@ -32,6 +32,7 @@ jobs:
           path: build-wasmlib/bin/slvs-wasmlib.zip
   publish-wasmlib:
     name: publish WASM library
+    if: false
     needs: [
       build-wasmlib,
     ]
