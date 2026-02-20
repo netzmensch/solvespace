@@ -26,7 +26,6 @@
 #include <QScreen>
 #include <QSettings>
 #include <QTimer>
-#include <cctype>
 
 #ifdef WIN32
 #    include <windows.h>
@@ -36,57 +35,6 @@
 
 namespace SolveSpace {
 namespace Platform {
-
-static bool IsIdentifierCharacter(char c) {
-    return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
-}
-
-static std::string LongestCommonPrefix(const std::vector<std::string> &values) {
-    if(values.empty()) return "";
-    std::string prefix = values.front();
-    for(size_t i = 1; i < values.size() && !prefix.empty(); i++) {
-        const std::string &candidate = values[i];
-        size_t n = 0;
-        while(n < prefix.size() && n < candidate.size() && prefix[n] == candidate[n]) {
-            n++;
-        }
-        prefix.resize(n);
-    }
-    return prefix;
-}
-
-static bool ApplyEditorCompletion(const std::vector<std::string> &suggestions,
-                                  std::string *text, size_t *cursorPos) {
-    if(suggestions.empty() || *cursorPos > text->size()) return false;
-
-    size_t start = *cursorPos;
-    while(start > 0 && IsIdentifierCharacter((*text)[start - 1])) {
-        start--;
-    }
-    size_t end = *cursorPos;
-    while(end < text->size() && IsIdentifierCharacter((*text)[end])) {
-        end++;
-    }
-    std::string prefix = text->substr(start, *cursorPos - start);
-    if(prefix.empty()) return false;
-
-    std::vector<std::string> matches;
-    for(const std::string &candidate : suggestions) {
-        if(candidate.size() >= prefix.size() &&
-           candidate.compare(0, prefix.size(), prefix) == 0) {
-            matches.push_back(candidate);
-        }
-    }
-    if(matches.empty()) return false;
-
-    std::string replacement = (matches.size() == 1) ? matches.front()
-                                                    : LongestCommonPrefix(matches);
-    if(replacement.size() <= prefix.size()) return false;
-
-    text->replace(start, end - start, replacement);
-    *cursorPos = start + replacement.size();
-    return true;
-}
 
 //-----------------------------------------------------------------------------
 // Fatal errors
@@ -593,7 +541,6 @@ SSView::SSView(QWidget* parent) : QOpenGLWidget(parent) {
     entry = new QLineEdit(this);
     entry->setVisible(false);
     connect(entry, SIGNAL(returnPressed()), SLOT(entryFinished()));
-    entry->installEventFilter(this);
 
     setFocusPolicy(Qt::FocusPolicy::StrongFocus);
     setMouseTracking(true);
@@ -634,26 +581,6 @@ void SSView::stopEditing() {
         entry->hide();
         setFocus();
     }
-}
-
-void SSView::setEditorSuggestions(const std::vector<std::string> &suggestions) {
-    editorSuggestions = suggestions;
-}
-
-bool SSView::eventFilter(QObject *obj, QEvent *event) {
-    if(obj == entry && entry->isVisible() && event->type() == QEvent::KeyPress) {
-        QKeyEvent *keyEvent = static_cast<QKeyEvent *>(event);
-        if(keyEvent->key() == Qt::Key_Tab || keyEvent->key() == Qt::Key_Backtab) {
-            std::string text = entry->text().toStdString();
-            size_t cursorPos = (size_t)entry->cursorPosition();
-            if(ApplyEditorCompletion(editorSuggestions, &text, &cursorPos)) {
-                entry->setText(QString::fromStdString(text));
-                entry->setCursorPosition((int)cursorPos);
-            }
-            return true;
-        }
-    }
-    return QOpenGLWidget::eventFilter(obj, event);
 }
 
 void SSView::entryFinished() {
@@ -983,7 +910,7 @@ public:
     }
 
     void SetEditorSuggestions(const std::vector<std::string> &suggestions) override {
-        view->setEditorSuggestions(suggestions);
+        // Not implemented for Qt editor.
     }
 
     void SetScrollbarVisible(bool visible) override {
