@@ -15,6 +15,7 @@
 /*.slvs
 .vscode/
 .cache/
+.docker-cache/
 
 # Visual Studio
 out/
