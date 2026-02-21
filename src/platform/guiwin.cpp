@@ -521,6 +521,13 @@ MenuBarRef GetOrCreateMainMenu(bool *unique) {
 
 class WindowImplWin32 final : public Window {
 public:
+    struct EditorCompletion {
+        size_t start = 0;
+        size_t end = 0;
+        size_t prefixLength = 0;
+        std::string replacement;
+    };
+
     HWND hWindow  = NULL;
     HWND hTooltip = NULL;
     HWND hEditor  = NULL;
@@ -565,20 +572,21 @@ public:
         return prefix;
     }
 
-    static bool ApplyEditorCompletion(const std::vector<std::string> &suggestions,
-                                      std::string *text, size_t *cursorPos) {
-        if(suggestions.empty() || *cursorPos > text->size()) {
+    static bool GetEditorCompletion(const std::vector<std::string> &suggestions,
+                                    const std::string &text, size_t cursorPos,
+                                    EditorCompletion *completion) {
+        if(suggestions.empty() || cursorPos > text.size()) {
             return false;
         }
-        size_t start = *cursorPos;
-        while(start > 0 && IsIdentifierCharacter((*text)[start - 1])) {
+        size_t start = cursorPos;
+        while(start > 0 && IsIdentifierCharacter(text[start - 1])) {
             start--;
         }
-        size_t end = *cursorPos;
-        while(end < text->size() && IsIdentifierCharacter((*text)[end])) {
+        size_t end = cursorPos;
+        while(end < text.size() && IsIdentifierCharacter(text[end])) {
             end++;
         }
-        std::string prefix = text->substr(start, *cursorPos - start);
+        std::string prefix = text.substr(start, cursorPos - start);
         if(prefix.empty()) {
             return false;
         }
@@ -600,9 +608,45 @@ public:
             return false;
         }
 
-        text->replace(start, end - start, replacement);
-        *cursorPos = start + replacement.size();
+        completion->start = start;
+        completion->end = end;
+        completion->prefixLength = prefix.size();
+        completion->replacement = replacement;
         return true;
+    }
+
+    static bool ApplyEditorCompletion(HWND h, const std::vector<std::string> &suggestions,
+                                      bool previewSelection) {
+        DWORD selectionStart = 0, selectionEnd = 0;
+        SendMessageW(h, EM_GETSEL, (WPARAM)&selectionStart, (LPARAM)&selectionEnd);
+        size_t cursorPos = (size_t)selectionEnd;
+        std::string text = GetEditorText(h);
+
+        EditorCompletion completion;
+        if(!GetEditorCompletion(suggestions, text, cursorPos, &completion)) {
+            return false;
+        }
+
+        std::wstring replacementW = Widen(completion.replacement);
+        sscheck(SendMessageW(h, EM_SETSEL, completion.start, completion.end));
+        sscheck(SendMessageW(h, EM_REPLACESEL, TRUE, (LPARAM)replacementW.c_str()));
+        if(previewSelection) {
+            const size_t prefixEnd = completion.start + completion.prefixLength;
+            const size_t replacementEnd = completion.start + completion.replacement.size();
+            sscheck(SendMessageW(h, EM_SETSEL, prefixEnd, replacementEnd));
+        } else {
+            const size_t replacementEnd = completion.start + completion.replacement.size();
+            sscheck(SendMessageW(h, EM_SETSEL, replacementEnd, replacementEnd));
+        }
+        return true;
+    }
+
+    static std::string GetEditorText(HWND h) {
+        int length;
+        sscheck(length = GetWindowTextLengthW(h));
+        std::wstring textW((size_t)length + 1, L'\0');
+        sscheck(GetWindowTextW(h, &textW[0], (int)textW.size()));
+        return Narrow(textW.c_str());
     }
 
     static void RegisterWindowClass() {
@@ -1143,21 +1187,7 @@ public:
         switch(msg) {
             case WM_KEYDOWN:
                 if(wParam == VK_TAB) {
-                    int length;
-                    sscheck(length = GetWindowTextLength(h));
-                    std::wstring textW;
-                    textW.resize(length);
-                    sscheck(GetWindowTextW(h, &textW[0], textW.length() + 1));
-
-                    DWORD selectionStart = 0, selectionEnd = 0;
-                    SendMessageW(h, EM_GETSEL, (WPARAM)&selectionStart, (LPARAM)&selectionEnd);
-                    size_t cursorPos = (size_t)selectionEnd;
-                    std::string text = Narrow(textW);
-                    if(ApplyEditorCompletion(window->editorSuggestions, &text, &cursorPos)) {
-                        std::wstring completedW = Widen(text);
-                        sscheck(SendMessageW(h, WM_SETTEXT, 0, (LPARAM)completedW.c_str()));
-                        sscheck(SendMessageW(h, EM_SETSEL, cursorPos, cursorPos));
-                    }
+                    ApplyEditorCompletion(h, window->editorSuggestions, false);
                     return 0;
                 }
                 break;
@@ -1165,19 +1195,20 @@ public:
             case WM_CHAR:
                 if(wParam == VK_RETURN) {
                     if(window->onEditingDone) {
-                        int length;
-                        sscheck(length = GetWindowTextLength(h));
-
-                        std::wstring resultW;
-                        resultW.resize(length);
-                        sscheck(GetWindowTextW(h, &resultW[0], resultW.length() + 1));
-
-                        window->onEditingDone(Narrow(resultW));
+                        window->onEditingDone(GetEditorText(h));
                         return 0;
                     }
                 } else if(wParam == VK_ESCAPE) {
                     window->HideEditor();
                     return 0;
+                } else if(wParam <= 0x7f &&
+                          IsIdentifierCharacter((char)wParam) &&
+                          !window->editorSuggestions.empty()) {
+                    // Let the EDIT control insert the typed character first, then
+                    // expand using available suggestions.
+                    LRESULT result = CallWindowProc(window->editorWndProc, h, msg, wParam, lParam);
+                    ApplyEditorCompletion(h, window->editorSuggestions, true);
+                    return result;
                 }
         }
 
@@ -1417,11 +1448,9 @@ public:
         sscheck(MoveWindow(hEditor, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
                            /*bRepaint=*/true));
         ShowWindow(hEditor, SW_SHOW);
-        if(!textW.empty()) {
-            sscheck(SendMessageW(hEditor, WM_SETTEXT, 0, (LPARAM)textW.c_str()));
-            sscheck(SendMessageW(hEditor, EM_SETSEL, 0, textW.length()));
-            sscheck(SetFocus(hEditor));
-        }
+        sscheck(SendMessageW(hEditor, WM_SETTEXT, 0, (LPARAM)textW.c_str()));
+        sscheck(SendMessageW(hEditor, EM_SETSEL, 0, textW.length()));
+        sscheck(SetFocus(hEditor));
     }
 
     void HideEditor() override {
