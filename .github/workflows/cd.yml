@@ -283,96 +283,53 @@ jobs:
     steps:
     - name: Download All Workflow Artifacts
       uses: actions/download-artifact@v4
-    - name: Resolve Release Upload URL
-      id: release_upload
+    - name: Ensure release exists
+      if: github.event_name == 'push'
       shell: bash
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        EVENT_NAME: ${{ github.event_name }}
-        EVENT_JSON: ${{ toJson(github.event) }}
         TAG_NAME: ${{ needs.detect_nitro_release.outputs.tag_name }}
         LABEL: ${{ needs.detect_nitro_release.outputs.label }}
         TARGET_SHA: ${{ github.sha }}
       run: |
         set -euo pipefail
-        if [[ "${EVENT_NAME}" == "release" ]]; then
-          upload_url="$(echo "${EVENT_JSON}" | jq -r '.release.upload_url')"
-        else
-          api="https://api.github.com/repos/${GITHUB_REPOSITORY}"
-          get_code="$(curl -sS -o /tmp/release_get.json -w '%{http_code}' \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "${api}/releases/tags/${TAG_NAME}")"
-          if [[ "${get_code}" == "200" ]]; then
-            upload_url="$(jq -r '.upload_url' /tmp/release_get.json)"
-          else
-            create_payload="$(jq -nc --arg tag "${TAG_NAME}" --arg name "SolveSpace ${LABEL}" \
-              --arg target "${TARGET_SHA}" \
-              '{tag_name:$tag,target_commitish:$target,name:$name,draft:false,prerelease:false,generate_release_notes:true}')"
-            create_code="$(curl -sS -o /tmp/release_create.json -w '%{http_code}' \
-              -X POST \
-              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "${api}/releases" \
-              -d "${create_payload}")"
-            if [[ "${create_code}" != "201" ]]; then
-              echo "Failed to create release (HTTP ${create_code})" >&2
-              cat /tmp/release_create.json >&2
-              exit 1
-            fi
-            upload_url="$(jq -r '.upload_url' /tmp/release_create.json)"
-          fi
+        if ! gh release view "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+          gh release create "${TAG_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${TARGET_SHA}" \
+            --title "SolveSpace ${LABEL}" \
+            --generate-notes
         fi
-        upload_url="${upload_url%\{*}"
-        echo "upload_url=${upload_url}" >> "$GITHUB_OUTPUT"
-        echo "Using upload URL: ${upload_url}"
-    - name: Upload SolveSpace.exe
-      uses: actions/upload-release-asset@v1
-      continue-on-error: true
+    - name: Upload release assets
+      shell: bash
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.release_upload.outputs.upload_url }}
-        asset_path: windows/solvespace.exe
-        asset_name: SolveSpace-${{ needs.detect_nitro_release.outputs.label }}.exe
-        asset_content_type: binary/octet-stream
-    - name: Upload SolveSpace_single_core.exe
-      uses: actions/upload-release-asset@v1
-      continue-on-error: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.release_upload.outputs.upload_url }}
-        asset_path: windows-openmp/solvespace_single_core.exe
-        asset_name: SolveSpace-${{ needs.detect_nitro_release.outputs.label }}_single_core.exe
-        asset_content_type: binary/octet-stream
-    - name: Upload SolveSpace_x64.exe
-      uses: actions/upload-release-asset@v1
-      continue-on-error: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.release_upload.outputs.upload_url }}
-        asset_path: windows/solvespace_x64.exe
-        asset_name: SolveSpace-${{ needs.detect_nitro_release.outputs.label }}_x64.exe
-        asset_content_type: binary/octet-stream
-    - name: Upload SolveSpace_single_core_x64.exe
-      uses: actions/upload-release-asset@v1
-      continue-on-error: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.release_upload.outputs.upload_url }}
-        asset_path: windows-openmp/solvespace_single_core_x64.exe
-        asset_name: SolveSpace-${{ needs.detect_nitro_release.outputs.label }}_single_core_x64.exe
-        asset_content_type: binary/octet-stream
-    - name: Upload SolveSpace.dmg
-      uses: actions/upload-release-asset@v1
-      continue-on-error: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.release_upload.outputs.upload_url }}
-        asset_path: macos/SolveSpaceNitro.dmg
-        asset_name: SolveSpace-${{ needs.detect_nitro_release.outputs.label }}.dmg
-        asset_content_type: binary/octet-stream
+        TAG_NAME: ${{ needs.detect_nitro_release.outputs.tag_name }}
+        LABEL: ${{ needs.detect_nitro_release.outputs.label }}
+      run: |
+        set -euo pipefail
+
+        for required in \
+          windows/solvespace.exe \
+          windows_single_core/solvespace_single_core.exe \
+          windows_x64/solvespace_x64.exe \
+          windows_single_core_x64/solvespace_single_core_x64.exe \
+          macos/SolveSpaceNitro.dmg; do
+          if [[ ! -f "${required}" ]]; then
+            echo "Missing release artifact: ${required}" >&2
+            exit 1
+          fi
+        done
+
+        tmpdir="$(mktemp -d)"
+        trap 'rm -rf "${tmpdir}"' EXIT
+
+        cp windows/solvespace.exe "${tmpdir}/SolveSpace-${LABEL}.exe"
+        cp windows_single_core/solvespace_single_core.exe "${tmpdir}/SolveSpace-${LABEL}_single_core.exe"
+        cp windows_x64/solvespace_x64.exe "${tmpdir}/SolveSpace-${LABEL}_x64.exe"
+        cp windows_single_core_x64/solvespace_single_core_x64.exe "${tmpdir}/SolveSpace-${LABEL}_single_core_x64.exe"
+        cp macos/SolveSpaceNitro.dmg "${tmpdir}/SolveSpace-${LABEL}.dmg"
+
+        gh release upload "${TAG_NAME}" "${tmpdir}"/* \
+          --repo "${GITHUB_REPOSITORY}" \
+          --clobber

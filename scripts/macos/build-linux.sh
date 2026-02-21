@@ -8,6 +8,7 @@ DOCKER_JOBS="${DOCKER_JOBS:-4}"
 CLEAN_DOCKER_BUILD="${CLEAN_DOCKER_BUILD:-0}"
 CLEAN_CCACHE="${CLEAN_CCACHE:-0}"
 REBUILD_DOCKER_IMAGE="${REBUILD_DOCKER_IMAGE:-0}"
+DOCKER_PLATFORM="${DOCKER_PLATFORM:-linux/amd64}"
 
 IMAGE_NAME="solvespace-builder:linux-ubuntu24.04"
 DOCKERFILE_PATH="scripts/docker/linux/Dockerfile"
@@ -30,11 +31,12 @@ if [ "$REBUILD_DOCKER_IMAGE" = "1" ]; then
   DOCKER_BUILD_ARGS+=(--no-cache)
 fi
 
-echo "==> Building Linux builder image (${IMAGE_NAME})"
-docker build "${DOCKER_BUILD_ARGS[@]}" -t "$IMAGE_NAME" -f "$DOCKERFILE_PATH" "$ROOT_DIR"
+echo "==> Building Linux builder image (${IMAGE_NAME}) for ${DOCKER_PLATFORM}"
+docker build "${DOCKER_BUILD_ARGS[@]}" --platform "$DOCKER_PLATFORM" -t "$IMAGE_NAME" -f "$DOCKERFILE_PATH" "$ROOT_DIR"
 
-echo "==> Building Linux (x64) via Docker image ${IMAGE_NAME} (jobs=${DOCKER_JOBS})"
+echo "==> Building Linux via Docker image ${IMAGE_NAME} (platform=${DOCKER_PLATFORM}, jobs=${DOCKER_JOBS})"
 docker run --rm -t \
+  --platform "$DOCKER_PLATFORM" \
   -v "$ROOT_DIR:/src" \
   -v "$BUILD_CACHE_DIR:/build" \
   -v "$CCACHE_DIR_HOST:/ccache" \
