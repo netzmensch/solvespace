@@ -543,7 +543,87 @@ public:
 
     std::shared_ptr<MenuBarImplWin32> menuBar;
     std::string tooltipText;
+    std::vector<std::string> editorSuggestions;
     bool scrollbarVisible = false;
+
+    static bool IsIdentifierCharacter(char c) {
+        return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+    }
+
+    static std::string LongestCommonPrefix(const std::vector<std::string> &values) {
+        if(values.empty()) return "";
+        std::string prefix = values.front();
+        for(size_t i = 1; i < values.size() && !prefix.empty(); i++) {
+            const std::string &candidate = values[i];
+            size_t n = 0;
+            while(n < prefix.size() && n < candidate.size() && prefix[n] == candidate[n]) {
+                n++;
+            }
+            prefix.resize(n);
+        }
+        return prefix;
+    }
+
+    static std::string GetEditorText(HWND h) {
+        int length = GetWindowTextLengthW(h);
+        if(length <= 0) return "";
+
+        std::wstring resultW;
+        resultW.resize(length);
+        GetWindowTextW(h, &resultW[0], resultW.length() + 1);
+        return Narrow(resultW);
+    }
+
+    static bool ApplyEditorCompletion(HWND h, const std::vector<std::string> &suggestions,
+                                      bool previewSelection) {
+        if(suggestions.empty()) return false;
+
+        DWORD selectionStart = 0, selectionEnd = 0;
+        SendMessageW(h, EM_GETSEL, (WPARAM)&selectionStart, (LPARAM)&selectionEnd);
+        size_t cursorPos = (size_t)selectionEnd;
+
+        std::string text = GetEditorText(h);
+        if(cursorPos > text.size()) return false;
+
+        size_t start = cursorPos;
+        while(start > 0 && IsIdentifierCharacter(text[start - 1])) {
+            start--;
+        }
+        size_t end = cursorPos;
+        while(end < text.size() && IsIdentifierCharacter(text[end])) {
+            end++;
+        }
+
+        std::string prefix = text.substr(start, cursorPos - start);
+        if(prefix.empty()) return false;
+
+        std::vector<std::string> matches;
+        for(const std::string &candidate : suggestions) {
+            if(candidate.size() >= prefix.size() &&
+               candidate.compare(0, prefix.size(), prefix) == 0) {
+                matches.push_back(candidate);
+            }
+        }
+        if(matches.empty()) return false;
+
+        std::string replacement = (matches.size() == 1) ? matches.front()
+                                                        : LongestCommonPrefix(matches);
+        if(replacement.size() <= prefix.size()) return false;
+
+        std::wstring replacementW = Widen(replacement);
+        SendMessageW(h, EM_SETSEL, start, end);
+        SendMessageW(h, EM_REPLACESEL, TRUE, (LPARAM)replacementW.c_str());
+
+        if(previewSelection) {
+            size_t previewStart = start + prefix.size();
+            size_t previewEnd = start + replacement.size();
+            SendMessageW(h, EM_SETSEL, previewStart, previewEnd);
+        } else {
+            size_t newCursor = start + replacement.size();
+            SendMessageW(h, EM_SETSEL, newCursor, newCursor);
+        }
+        return true;
+    }
 
     static void RegisterWindowClass() {
         static bool registered;
@@ -1081,6 +1161,13 @@ public:
         sscheck(window = (WindowImplWin32 *)GetWindowLongPtr(hWindow, 0));
 
         switch(msg) {
+            case WM_KEYDOWN:
+                if(wParam == VK_TAB) {
+                    ApplyEditorCompletion(h, window->editorSuggestions, false);
+                    return 0;
+                }
+                break;
+
             case WM_CHAR:
                 if(wParam == VK_RETURN) {
                     if(window->onEditingDone) {
@@ -1097,6 +1184,13 @@ public:
                 } else if(wParam == VK_ESCAPE) {
                     window->HideEditor();
                     return 0;
+                } else if(wParam <= 0x7f &&
+                          IsIdentifierCharacter((char)wParam) &&
+                          !window->editorSuggestions.empty()) {
+                    // Let EDIT insert typed char first, then apply preview completion.
+                    LRESULT result = CallWindowProc(window->editorWndProc, h, msg, wParam, lParam);
+                    ApplyEditorCompletion(h, window->editorSuggestions, true);
+                    return result;
                 }
         }
 
@@ -1350,7 +1444,7 @@ public:
     }
 
     void SetEditorSuggestions(const std::vector<std::string> &suggestions) override {
-        // Not implemented for Win32 editor.
+        editorSuggestions = suggestions;
     }
 
     void SetScrollbarVisible(bool visible) override {

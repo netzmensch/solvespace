@@ -309,6 +309,7 @@ void TextWindow::ClearSuper() {
 void TextWindow::HideEditControl() {
     editControl.colorPicker.show = false;
     if(window) {
+        window->SetEditorSuggestions({});
         window->HideEditor();
         window->Invalidate();
     }
@@ -324,7 +325,6 @@ void TextWindow::ShowEditControl(int col, const std::string &str, int halfRow) {
 
     double width, height;
     window->GetContentSize(&width, &height);
-    window->SetEditorSuggestions({});
     window->ShowEditor(x, y + LINE_HEIGHT - 2, LINE_HEIGHT - 4,
                        width - x, /*isMonospace=*/true, str);
 }

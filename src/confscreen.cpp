@@ -322,8 +322,8 @@ void TextWindow::ScreenChangeUserParameterName(int link, uint32_t v) {
 void TextWindow::ScreenChangeUserParameterExpression(int link, uint32_t v) {
     if(v >= SS.userParameters.size()) return;
 
-    SS.TW.ShowEditControl(7, SS.userParameters[v].expr);
     SS.TW.window->SetEditorSuggestions(BuildUserParameterSuggestions());
+    SS.TW.ShowEditControl(7, SS.userParameters[v].expr);
     SS.TW.edit.meaning = Edit::USER_PARAMETER_EXPR;
     SS.TW.edit.i = (int)v;
 }
