@@ -1198,7 +1198,7 @@ static CleanupConnexionHandlersProc cleanupConnexionHandlers = NULL;
 static RegisterConnexionClientProc registerConnexionClient = NULL;
 static UnregisterConnexionClientProc unregisterConnexionClient = NULL;
 static UInt32 connexionSignature = 'SoSp';
-static UInt8 *connexionName = (UInt8 *)"\x10SolveSpace";
+static UInt8 *connexionName = (UInt8 *)"\x15SolveSpaceNitro";
 static UInt16 connexionClient = 0;
 
 static std::vector<std::weak_ptr<Window>> connexionWindows;

@@ -98,6 +98,9 @@ VERSION_MAJOR=${PROJECT_VERSION_MAJOR}\n\
 VERSION_MINOR=${PROJECT_VERSION_MINOR}\n\
 VERSION_PATCH=0\n\
 VERSION_GIT_HASH=${solvespace_GIT_HASH}\n\
+NITRO_REV=${NITRO_VERSION_REV}\n\
+NITRO_SHORT_VERSION=${SOLVESPACE_NITRO_SHORT_VERSION}\n\
+NITRO_DISPLAY_VERSION=${SOLVESPACE_NITRO_DISPLAY_VERSION}\n\
 ")
 
 if(ENABLE_GUI OR ENABLE_CLI)
@@ -301,8 +304,11 @@ if(ENABLE_GUI)
             platform/guimac.mm)
         set_target_properties(solvespace PROPERTIES
             OUTPUT_NAME SolveSpace
+            MACOSX_BUNDLE_BUNDLE_NAME "SolveSpaceNitro"
+            MACOSX_BUNDLE_GUI_IDENTIFIER "com.solvespace.nitro"
+            MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/platform/Info.plist.in"
             XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME "YES"
-            XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.solvespace"
+            XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.solvespace.nitro"
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
     elseif(EMSCRIPTEN)
         # Due to the response file hack below, we need a version of Emscripten that

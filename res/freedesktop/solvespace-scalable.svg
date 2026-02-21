@@ -1,6 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg version="1.1" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+ <defs>
+  <linearGradient id="flameOuter" x1="0%" y1="100%" x2="0%" y2="0%">
+   <stop offset="0%" stop-color="#ff3b00"/>
+   <stop offset="45%" stop-color="#ff7a00"/>
+   <stop offset="100%" stop-color="#ffb347"/>
+  </linearGradient>
+  <linearGradient id="flameInner" x1="0%" y1="100%" x2="0%" y2="0%">
+   <stop offset="0%" stop-color="#ffb347"/>
+   <stop offset="100%" stop-color="#fff1a8"/>
+  </linearGradient>
+ </defs>
  <g>
+  <!-- Outer flame ring -->
+  <path d="m30 188c6-18 17-22 26-34 7-10 8-23 6-36 18 11 23 25 24 38 7-12 12-31 5-49 15 8 26 25 28 46 3-12 9-28 23-40 2 19 6 34 16 47 2-15 10-33 28-43-2 18 1 32 11 46 1-14 7-29 20-41-1 20 5 32 13 42 9 11 16 15 21 24h-221z" fill="url(#flameOuter)" opacity=".88"/>
+  <!-- Inner flame tongues -->
+  <path d="m50 188c4-10 11-13 16-20 4-5 5-12 4-19 9 6 12 13 12 20 5-7 7-16 4-26 9 6 13 14 14 24 4-7 9-15 17-21 0 10 2 17 7 24 3-8 8-17 18-23 0 10 3 17 8 24 3-8 8-16 16-22 0 11 3 18 8 24 4 5 10 9 14 15h-138z" fill="url(#flameInner)" opacity=".82"/>
+
   <path d="m116 152h84v12h-84z" fill="#cbcbcb"/>
   <path d="m152 80h12v74h-12z" fill="#cbcbcb"/>
   <path d="m104 140h84v12h-84z" fill="#e40cf2"/>

@@ -3,7 +3,7 @@ name: CD
 on:
   push:
     branches:
-      - master
+      - master_nitro
   release:
     types:
       - created
@@ -19,8 +19,75 @@ jobs:
       with:
         access_token: ${{ github.token }}
 
-  test_ubuntu:
+  detect_nitro_release:
     needs: [cancel_previous_runs]
+    runs-on: ubuntu-latest
+    name: Detect Nitro Release Trigger
+    outputs:
+      should_release: ${{ steps.detect.outputs.should_release }}
+      tag_name: ${{ steps.detect.outputs.tag_name }}
+      label: ${{ steps.detect.outputs.label }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Detect and prepare Nitro release
+      id: detect
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        BEFORE_SHA: ${{ github.event.before }}
+        CURRENT_SHA: ${{ github.sha }}
+        RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
+      run: |
+        set -euo pipefail
+
+        if [[ "${EVENT_NAME}" == "release" ]]; then
+          tag_name="${RELEASE_TAG_NAME}"
+          label="${tag_name#v}"
+          echo "should_release=false" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${tag_name}" >> "$GITHUB_OUTPUT"
+          echo "label=${label}" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        upstream_minor="$(sed -n 's/^[[:space:]]*VERSION[[:space:]]\+\([0-9]\+\.[0-9]\+\).*/\1/p' CMakeLists.txt | head -n 1)"
+        nitro_rev="$(tr -d '[:space:]' < NITRO_VERSION)"
+        if [[ -z "${upstream_minor}" || ! "${nitro_rev}" =~ ^[0-9]+$ ]]; then
+          echo "Invalid version metadata" >&2
+          exit 1
+        fi
+
+        label="${upstream_minor}.0-nitro.${nitro_rev}"
+        tag_name="v${label}"
+
+        changed="false"
+        if [[ "${BEFORE_SHA}" == "0000000000000000000000000000000000000000" ]]; then
+          if git show --name-only --pretty="" "${CURRENT_SHA}" | grep -qx "NITRO_VERSION"; then
+            changed="true"
+          fi
+        else
+          if git diff --name-only "${BEFORE_SHA}" "${CURRENT_SHA}" | grep -qx "NITRO_VERSION"; then
+            changed="true"
+          fi
+        fi
+
+        should_release="false"
+        if [[ "${changed}" == "true" ]]; then
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag_name}" >/dev/null 2>&1; then
+            echo "Tag ${tag_name} already exists; skipping auto-release."
+          else
+            should_release="true"
+            echo "Will create release for ${tag_name} after successful builds."
+          fi
+        fi
+
+        echo "should_release=${should_release}" >> "$GITHUB_OUTPUT"
+        echo "tag_name=${tag_name}" >> "$GITHUB_OUTPUT"
+        echo "label=${label}" >> "$GITHUB_OUTPUT"
+
+  test_ubuntu:
+    needs: [cancel_previous_runs, detect_nitro_release]
     runs-on: ubuntu-latest
     name: Test Ubuntu
     steps:
@@ -31,7 +98,7 @@ jobs:
       run: .github/scripts/build-ubuntu.sh
 
   test_windows:
-    needs: [cancel_previous_runs]
+    needs: [cancel_previous_runs, detect_nitro_release]
     runs-on: windows-2022
     name: Test Windows
     steps:
@@ -44,7 +111,7 @@ jobs:
       shell: bash
 
   test_macos:
-    needs: [cancel_previous_runs]
+    needs: [cancel_previous_runs, detect_nitro_release]
     runs-on: macos-latest
     name: Test macOS
     steps:
@@ -55,8 +122,9 @@ jobs:
       run: .github/scripts/build-macos.sh debug arm64 && .github/scripts/build-macos.sh debug x86_64
 
   build_release_windows:
-    needs: [test_ubuntu, test_windows, test_macos]
+    needs: [detect_nitro_release, test_ubuntu, test_windows, test_macos]
     name: Build Release Windows
+    if: github.event_name == 'release' || (github.event_name == 'push' && needs.detect_nitro_release.outputs.should_release == 'true')
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -73,8 +141,9 @@ jobs:
           path: build/bin/RelWithDebInfo/solvespace_single_core.exe
 
   build_release_windows_openmp:
-    needs: [test_ubuntu, test_windows, test_macos]
+    needs: [detect_nitro_release, test_ubuntu, test_windows, test_macos]
     name: Build Release Windows (OpenMP)
+    if: github.event_name == 'release' || (github.event_name == 'push' && needs.detect_nitro_release.outputs.should_release == 'true')
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -91,8 +160,9 @@ jobs:
           path: build/bin/RelWithDebInfo/solvespace.exe
 
   build_release_windows_x64:
-    needs: [test_ubuntu, test_windows, test_macos]
+    needs: [detect_nitro_release, test_ubuntu, test_windows, test_macos]
     name: Build Release Windows x64
+    if: github.event_name == 'release' || (github.event_name == 'push' && needs.detect_nitro_release.outputs.should_release == 'true')
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -109,8 +179,9 @@ jobs:
           path: build/bin/RelWithDebInfo/solvespace_single_core_x64.exe
 
   build_release_windows_openmp_x64:
-    needs: [test_ubuntu, test_windows, test_macos]
+    needs: [detect_nitro_release, test_ubuntu, test_windows, test_macos]
     name: Build Release Windows (OpenMP) x64
+    if: github.event_name == 'release' || (github.event_name == 'push' && needs.detect_nitro_release.outputs.should_release == 'true')
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -127,8 +198,9 @@ jobs:
           path: build/bin/RelWithDebInfo/solvespace_x64.exe
 
   build_release_macos:
-    needs: [test_ubuntu, test_windows, test_macos]
+    needs: [detect_nitro_release, test_ubuntu, test_windows, test_macos]
     name: Build Release macOS
+    if: github.event_name == 'release' || (github.event_name == 'push' && needs.detect_nitro_release.outputs.should_release == 'true')
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v4
@@ -148,11 +220,12 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: macos
-        path: build/bin/SolveSpace.dmg
+        path: build/bin/SolveSpaceNitro.dmg
 
   build_release_web:
-    needs: [test_ubuntu, test_windows, test_macos]
+    needs: [detect_nitro_release, test_ubuntu, test_windows, test_macos]
     name: Build Release Web
+    if: github.event_name == 'release' || (github.event_name == 'push' && needs.detect_nitro_release.outputs.should_release == 'true')
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -202,59 +275,96 @@ jobs:
 
   upload_release_assets:
     name: Upload Release Assets
-    needs: [build_release_windows, build_release_windows_openmp, build_release_windows_x64, build_release_windows_openmp_x64, build_release_macos]
-    if: "!cancelled() && github.event_name == 'release'"
+    needs: [detect_nitro_release, build_release_windows, build_release_windows_openmp, build_release_windows_x64, build_release_windows_openmp_x64, build_release_macos]
+    if: "!cancelled() && (github.event_name == 'release' || (github.event_name == 'push' && needs.detect_nitro_release.outputs.should_release == 'true'))"
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
     - name: Download All Workflow Artifacts
       uses: actions/download-artifact@v4
-    - name: Get Release Upload URL
-      id: get_upload_url
+    - name: Resolve Release Upload URL
+      id: release_upload
+      shell: bash
       env:
-        event: ${{ toJson(github.event) }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        EVENT_NAME: ${{ github.event_name }}
+        EVENT_JSON: ${{ toJson(github.event) }}
+        TAG_NAME: ${{ needs.detect_nitro_release.outputs.tag_name }}
+        LABEL: ${{ needs.detect_nitro_release.outputs.label }}
+        TARGET_SHA: ${{ github.sha }}
       run: |
-        upload_url=$(echo "$event" | jq -r ".release.upload_url")
-        echo "::set-output name=upload_url::$upload_url"
-        echo "Upload URL: $upload_url"
-    - name: Upload solvespace.exe
+        set -euo pipefail
+        if [[ "${EVENT_NAME}" == "release" ]]; then
+          upload_url="$(echo "${EVENT_JSON}" | jq -r '.release.upload_url')"
+        else
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          get_code="$(curl -sS -o /tmp/release_get.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "${api}/releases/tags/${TAG_NAME}")"
+          if [[ "${get_code}" == "200" ]]; then
+            upload_url="$(jq -r '.upload_url' /tmp/release_get.json)"
+          else
+            create_payload="$(jq -nc --arg tag "${TAG_NAME}" --arg name "SolveSpace ${LABEL}" \
+              --arg target "${TARGET_SHA}" \
+              '{tag_name:$tag,target_commitish:$target,name:$name,draft:false,prerelease:false,generate_release_notes:true}')"
+            create_code="$(curl -sS -o /tmp/release_create.json -w '%{http_code}' \
+              -X POST \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "${api}/releases" \
+              -d "${create_payload}")"
+            if [[ "${create_code}" != "201" ]]; then
+              echo "Failed to create release (HTTP ${create_code})" >&2
+              cat /tmp/release_create.json >&2
+              exit 1
+            fi
+            upload_url="$(jq -r '.upload_url' /tmp/release_create.json)"
+          fi
+        fi
+        upload_url="${upload_url%\{*}"
+        echo "upload_url=${upload_url}" >> "$GITHUB_OUTPUT"
+        echo "Using upload URL: ${upload_url}"
+    - name: Upload SolveSpace.exe
       uses: actions/upload-release-asset@v1
       continue-on-error: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        upload_url: ${{ steps.get_upload_url.outputs.upload_url }}
+        upload_url: ${{ steps.release_upload.outputs.upload_url }}
         asset_path: windows/solvespace.exe
-        asset_name: solvespace.exe
+        asset_name: SolveSpace-${{ needs.detect_nitro_release.outputs.label }}.exe
         asset_content_type: binary/octet-stream
-    - name: Upload solvespace_single_core.exe
+    - name: Upload SolveSpace_single_core.exe
       uses: actions/upload-release-asset@v1
       continue-on-error: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        upload_url: ${{ steps.get_upload_url.outputs.upload_url }}
+        upload_url: ${{ steps.release_upload.outputs.upload_url }}
         asset_path: windows-openmp/solvespace_single_core.exe
-        asset_name: solvespace_single_core.exe
+        asset_name: SolveSpace-${{ needs.detect_nitro_release.outputs.label }}_single_core.exe
         asset_content_type: binary/octet-stream
-    - name: Upload solvespace_x64.exe
+    - name: Upload SolveSpace_x64.exe
       uses: actions/upload-release-asset@v1
       continue-on-error: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        upload_url: ${{ steps.get_upload_url.outputs.upload_url }}
+        upload_url: ${{ steps.release_upload.outputs.upload_url }}
         asset_path: windows/solvespace_x64.exe
-        asset_name: solvespace_x64.exe
+        asset_name: SolveSpace-${{ needs.detect_nitro_release.outputs.label }}_x64.exe
         asset_content_type: binary/octet-stream
-    - name: Upload solvespace_single_core_x64.exe
+    - name: Upload SolveSpace_single_core_x64.exe
       uses: actions/upload-release-asset@v1
       continue-on-error: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        upload_url: ${{ steps.get_upload_url.outputs.upload_url }}
+        upload_url: ${{ steps.release_upload.outputs.upload_url }}
         asset_path: windows-openmp/solvespace_single_core_x64.exe
-        asset_name: solvespace_single_core_x64.exe
+        asset_name: SolveSpace-${{ needs.detect_nitro_release.outputs.label }}_single_core_x64.exe
         asset_content_type: binary/octet-stream
     - name: Upload SolveSpace.dmg
       uses: actions/upload-release-asset@v1
@@ -262,7 +372,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        upload_url: ${{ steps.get_upload_url.outputs.upload_url }}
-        asset_path: macos/SolveSpace.dmg
-        asset_name: SolveSpace.dmg
+        upload_url: ${{ steps.release_upload.outputs.upload_url }}
+        asset_path: macos/SolveSpaceNitro.dmg
+        asset_name: SolveSpace-${{ needs.detect_nitro_release.outputs.label }}.dmg
         asset_content_type: binary/octet-stream

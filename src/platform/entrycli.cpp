@@ -184,7 +184,7 @@ static bool RunCommand(const std::vector<std::string> args) {
 
     unsigned width = 0, height = 0;
     if(args[1] == "version") {
-        fprintf(stderr, "SolveSpace version %s \n\n", PACKAGE_VERSION);
+        fprintf(stderr, "SolveSpaceNitro version %s \n\n", PACKAGE_VERSION);
         return false;
     } else if(args[1] == "thumbnail") {
         auto ParseSize = [&](size_t &argn) {

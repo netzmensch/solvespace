@@ -582,7 +582,7 @@ bool SolveSpaceUI::GetFilenameAndSave(bool saveAs) {
         Platform::FileDialogRef dialog = Platform::CreateSaveFileDialog(GW.window);
         // FIXME(emscripten):
         dbp("Calling AddFilter()...");
-        dialog->AddFilter(C_("file-type", "SolveSpace models"), { SKETCH_EXT });
+        dialog->AddFilter(C_("file-type", "SolveSpaceNitro models"), { SKETCH_EXT });
         dbp("Calling ThawChoices()...");
         dialog->ThawChoices(settings, "Sketch");
         if(!newSaveFile.IsEmpty()) {
@@ -1105,11 +1105,11 @@ void SolveSpaceUI::MenuHelp(Command id) {
 
         case Command::ABOUT:
             Message(_(
-"This is SolveSpace version %s.\n"
+"This is SolveSpaceNitro version %s.\n"
 "\n"
 "For more information, see http://solvespace.com/\n"
 "\n"
-"SolveSpace is free software: you are free to modify\n"
+"SolveSpaceNitro is free software: you are free to modify\n"
 "and/or redistribute it under the terms of the GNU\n"
 "General Public License (GPL) version 3 or later.\n"
 "\n"
