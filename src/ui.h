@@ -152,6 +152,7 @@ enum class Command : uint32_t {
     GROUP_WRKPL,
     GROUP_EXTRUDE,
     GROUP_HELIX,
+    GROUP_THREAD,
     GROUP_LATHE,
     GROUP_REVOLVE,
     GROUP_ROT,
@@ -344,6 +345,8 @@ public:
         FIND_CONSTRAINT_TIMEOUT = 119,
         EXPLODE_DISTANCE      = 120,
         ANIMATION_SPEED       = 121,
+        USER_PARAMETER_NAME   = 122,
+        USER_PARAMETER_EXPR   = 123,
         // For TTF text
         TTF_TEXT              = 300,
         // For the step dimension screen
@@ -370,7 +373,9 @@ public:
         // For tangent arc
         TANGENT_ARC_RADIUS    = 800,
         // For helix pitch
-        HELIX_PITCH           = 802
+        HELIX_PITCH           = 802,
+        // For thread parameters
+        THREAD_PARAMETER      = 803
     };
     struct {
         bool        showAgain;
@@ -506,6 +511,7 @@ public:
     static void ScreenChangeGroupName(int link, uint32_t v);
     static void ScreenChangeGroupScale(int link, uint32_t v);
     static void ScreenChangeHelixPitch(int link, uint32_t v);
+    static void ScreenChangeThreadParameter(int link, uint32_t v);
     static void ScreenChangePitchOption(int link, uint32_t v);
     static void ScreenChangeLightDirection(int link, uint32_t v);
     static void ScreenChangeLightIntensity(int link, uint32_t v);
@@ -527,6 +533,10 @@ public:
     static void ScreenChangeAutosaveInterval(int link, uint32_t v);
     static void ScreenChangeFindConstraintTimeout(int link, uint32_t v);
     static void ScreenChangeAnimationSpeed(int link, uint32_t v);
+    static void ScreenCreateUserParameter(int link, uint32_t v);
+    static void ScreenDeleteUserParameter(int link, uint32_t v);
+    static void ScreenChangeUserParameterName(int link, uint32_t v);
+    static void ScreenChangeUserParameterExpression(int link, uint32_t v);
     static void ScreenChangeStyleName(int link, uint32_t v);
     static void ScreenChangeStyleMetric(int link, uint32_t v);
     static void ScreenChangeStyleTextAngle(int link, uint32_t v);

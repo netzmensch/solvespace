@@ -430,6 +430,12 @@ public:
     TextWindow                 &TW;
     GraphicsWindow              GW;
 
+    struct UserParameter {
+        std::string name;
+        std::string expr;
+    };
+    std::vector<UserParameter>  userParameters;
+
     // The state for undo/redo
     typedef struct UndoState {
         IdList<Group,hGroup>            group;
@@ -438,6 +444,7 @@ public:
         IdList<Constraint,hConstraint>  constraint;
         ParamList                       param;
         IdList<Style,hStyle>            style;
+        std::vector<UserParameter>      userParameters;
         hGroup                          activeGroup;
 
         void Clear() {
@@ -446,6 +453,7 @@ public:
             constraint.Clear();
             param.Clear();
             style.Clear();
+            userParameters.clear();
         }
     } UndoState;
     enum { MAX_UNDO = 100 };
@@ -537,6 +545,15 @@ public:
     std::string MmToString(double v, bool editable=false);
     std::string MmToStringSI(double v, int dim = 0);
     std::string DegreeToString(double v);
+    bool IsValidUserParameterName(const std::string &name) const;
+    bool EvaluateAllUserParameters(std::unordered_map<std::string, double> *values,
+                                   std::string *error) const;
+    bool EvaluateExpressionWithUserParameters(const std::string &input,
+                                              const std::unordered_map<std::string, double> *values,
+                                              double *result,
+                                              std::string *error) const;
+    bool RecomputeConstraintExpressions(std::string *error, bool apply = true);
+    bool RecomputeThreadParameterExpressions(std::string *error, bool apply = true);
     double ExprToMm(Expr *e);
     double StringToMm(const std::string &s);
     const char *UnitName();
@@ -583,6 +600,7 @@ public:
         Param        p;
         Constraint   c;
         Style        s;
+        UserParameter u;
     } sv;
     static void MenuFile(Command id);
     void Autosave();

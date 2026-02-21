@@ -1067,6 +1067,10 @@ public:
         htmlEditor["style"].set("display", val("none"));
     }
 
+    void SetEditorSuggestions(const std::vector<std::string> &suggestions) override {
+        // Not implemented for HTML editor.
+    }
+
     void SetScrollbarVisible(bool visible) override {
         // dbp("SetScrollbarVisible(): visible=%d", visible ? 1 : 0);
         if (this->scrollbarHelper == val::null()) {

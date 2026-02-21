@@ -1349,6 +1349,10 @@ public:
         ShowWindow(hEditor, SW_HIDE);
     }
 
+    void SetEditorSuggestions(const std::vector<std::string> &suggestions) override {
+        // Not implemented for Win32 editor.
+    }
+
     void SetScrollbarVisible(bool visible) override {
         scrollbarVisible = visible;
         sscheck(ShowScrollBar(hWindow, SB_VERT, visible));

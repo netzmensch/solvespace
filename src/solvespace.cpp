@@ -7,6 +7,9 @@
 #include "solvespace.h"
 #include "config.h"
 
+#include <cctype>
+#include <unordered_set>
+
 namespace SolveSpace {
 
 SolveSpaceUI SS = {};
@@ -487,6 +490,407 @@ std::string SolveSpaceUI::DegreeToString(double v) {
         return ssprintf("%.0f", v);
     }
 }
+
+bool SolveSpaceUI::IsValidUserParameterName(const std::string &name) const {
+    if(name.empty()) return false;
+
+    const unsigned char first = (unsigned char)name[0];
+    if(!(isalpha(first) || first == '_')) return false;
+
+    for(char c : name) {
+        unsigned char uc = (unsigned char)c;
+        if(!(isalnum(uc) || c == '_')) return false;
+    }
+
+    static const std::unordered_set<std::string> kReservedNames = {
+        "sqrt", "square", "sin", "cos", "asin", "acos", "pi"
+    };
+    if(kReservedNames.find(name) != kReservedNames.end()) return false;
+
+    return true;
+}
+
+bool SolveSpaceUI::EvaluateAllUserParameters(std::unordered_map<std::string, double> *values,
+                                             std::string *error) const {
+    values->clear();
+
+    std::unordered_map<std::string, const UserParameter *> byName;
+    byName.reserve(userParameters.size());
+    for(const UserParameter &parameter : userParameters) {
+        if(!IsValidUserParameterName(parameter.name)) {
+            if(error) {
+                *error = ssprintf("'%s' is not a valid user parameter name",
+                                  parameter.name.c_str());
+            }
+            return false;
+        }
+        if(byName.find(parameter.name) != byName.end()) {
+            if(error) {
+                *error = ssprintf("User parameter '%s' is defined multiple times",
+                                  parameter.name.c_str());
+            }
+            return false;
+        }
+        byName.insert({ parameter.name, &parameter });
+    }
+
+    std::unordered_set<std::string> visiting;
+    std::function<bool(const std::string &, double *)> resolveParameter =
+        [&](const std::string &name, double *resolvedValue) -> bool {
+            auto existing = values->find(name);
+            if(existing != values->end()) {
+                *resolvedValue = existing->second;
+                return true;
+            }
+
+            auto parameterIt = byName.find(name);
+            if(parameterIt == byName.end()) {
+                return false;
+            }
+
+            if(visiting.find(name) != visiting.end()) {
+                if(error) {
+                    *error = ssprintf("Cyclic dependency detected for user parameter '%s'",
+                                      name.c_str());
+                }
+                return false;
+            }
+
+            visiting.insert(name);
+            std::string parseError;
+            Expr *expr = Expr::Parse(parameterIt->second->expr, &parseError,
+                                     &resolveParameter);
+            if(!expr) {
+                visiting.erase(name);
+                if(error) {
+                    *error = ssprintf("Failed to evaluate user parameter '%s': %s",
+                                      name.c_str(), parseError.c_str());
+                }
+                return false;
+            }
+
+            double value = expr->Eval();
+            visiting.erase(name);
+            (*values)[name] = value;
+            *resolvedValue = value;
+            return true;
+        };
+
+    for(const UserParameter &parameter : userParameters) {
+        double value = 0;
+        if(!resolveParameter(parameter.name, &value)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool SolveSpaceUI::EvaluateExpressionWithUserParameters(
+    const std::string &input,
+    const std::unordered_map<std::string, double> *values,
+    double *result,
+    std::string *error) const
+{
+    std::unordered_map<std::string, double> localValues;
+    if(values == nullptr) {
+        if(!EvaluateAllUserParameters(&localValues, error)) return false;
+        values = &localValues;
+    }
+
+    ExprVariableResolver resolver = [&](const std::string &name, double *resolvedValue) {
+        auto it = values->find(name);
+        if(it == values->end()) return false;
+        *resolvedValue = it->second;
+        return true;
+    };
+
+    std::string parseError;
+    Expr *expr = Expr::Parse(input, &parseError, &resolver);
+    if(!expr) {
+        if(error) *error = parseError;
+        return false;
+    }
+
+    *result = expr->Eval();
+    return true;
+}
+
+static bool IsSignedDistanceConstraint(Constraint::Type type) {
+    switch(type) {
+        case Constraint::Type::PROJ_PT_DISTANCE:
+        case Constraint::Type::PT_LINE_DISTANCE:
+        case Constraint::Type::PT_FACE_DISTANCE:
+        case Constraint::Type::PT_PLANE_DISTANCE:
+        case Constraint::Type::LENGTH_DIFFERENCE:
+        case Constraint::Type::ARC_ARC_DIFFERENCE:
+        case Constraint::Type::ARC_LINE_DIFFERENCE:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+bool SolveSpaceUI::RecomputeConstraintExpressions(std::string *error, bool apply) {
+    std::unordered_map<std::string, double> userParamValues;
+    if(!EvaluateAllUserParameters(&userParamValues, error)) {
+        return false;
+    }
+
+    std::vector<std::pair<hConstraint, double>> computedValues;
+    computedValues.reserve(SK.constraint.n);
+
+    for(const Constraint &constraint : SK.constraint) {
+        if(constraint.reference || constraint.valAExpr.empty()) continue;
+
+        double expressionValue = 0;
+        std::string evaluateError;
+        if(!EvaluateExpressionWithUserParameters(constraint.valAExpr,
+                                                 &userParamValues,
+                                                 &expressionValue,
+                                                 &evaluateError)) {
+            if(error) {
+                *error = ssprintf("Constraint c%03x: %s",
+                                  constraint.h.v, evaluateError.c_str());
+            }
+            return false;
+        }
+
+        double valA = 0;
+        if(IsSignedDistanceConstraint(constraint.type)) {
+            double valMm = expressionValue * MmPerUnit();
+            valA = constraint.valAExprNegate ? -valMm : valMm;
+            computedValues.push_back({ constraint.h, valA });
+            continue;
+        }
+
+        switch(constraint.type) {
+            case Constraint::Type::ANGLE:
+            case Constraint::Type::LENGTH_RATIO:
+            case Constraint::Type::ARC_ARC_LEN_RATIO:
+            case Constraint::Type::ARC_LINE_LEN_RATIO:
+                valA = fabs(expressionValue);
+                break;
+
+            case Constraint::Type::DIAMETER:
+                valA = fabs(expressionValue * MmPerUnit());
+                if(constraint.other) {
+                    valA *= 2;
+                }
+                break;
+
+            default:
+                valA = fabs(expressionValue * MmPerUnit());
+                break;
+        }
+        computedValues.push_back({ constraint.h, valA });
+    }
+
+    if(apply) {
+        for(const auto &entry : computedValues) {
+            SK.GetConstraint(entry.first)->valA = entry.second;
+        }
+    }
+
+    return true;
+}
+
+static const char *ThreadParameterName(int paramIndex) {
+    switch(paramIndex) {
+        case 6: return "diameter";
+        case 7: return "length";
+        case 8: return "thread height";
+        case 9: return "thread depth (auto)";
+        case 10: return "pitch";
+        case 11: return "tip height";
+        case 12: return "cap top diameter";
+        case 13: return "cap depth";
+        case 14: return "cap bottom diameter";
+        case 15: return "hollow wall thickness";
+        default: return "unknown";
+    }
+}
+
+static bool ValidateThreadParameterMmValue(int paramIndex, double valueMm, std::string *error) {
+    if((paramIndex == 6 || paramIndex == 7 || paramIndex == 10) && valueMm <= LENGTH_EPS) {
+        if(error) {
+            *error = ssprintf("Thread parameter '%s' must be positive",
+                              ThreadParameterName(paramIndex));
+        }
+        return false;
+    }
+    if((paramIndex == 8 || paramIndex == 9 || paramIndex == 11 ||
+        paramIndex == 12 || paramIndex == 13 || paramIndex == 14 ||
+        paramIndex == 15) && valueMm < 0.0) {
+        if(error) {
+            *error = ssprintf("Thread parameter '%s' must be zero or positive",
+                              ThreadParameterName(paramIndex));
+        }
+        return false;
+    }
+    return true;
+}
+
+bool SolveSpaceUI::RecomputeThreadParameterExpressions(std::string *error, bool apply) {
+    std::unordered_map<std::string, double> userParamValues;
+    if(!EvaluateAllUserParameters(&userParamValues, error)) {
+        return false;
+    }
+
+    struct PendingValue {
+        hGroup group;
+        int paramIndex;
+        double valueMm;
+    };
+    std::vector<PendingValue> computedValues;
+
+    for(const Group &group : SK.group) {
+        if(group.type != Group::Type::THREAD) continue;
+
+        // A newly created thread group may not have had all params materialized yet
+        // when this pre-pass runs; defer expression handling until they exist.
+        if(SK.param.FindByIdNoOops(group.h.param(6)) == nullptr) {
+            continue;
+        }
+
+        double threadParamVals[16] = {};
+        for(int paramIndex = 6; paramIndex <= 15; paramIndex++) {
+            if(Param *p = SK.param.FindByIdNoOops(group.h.param(paramIndex))) {
+                threadParamVals[paramIndex] = p->val;
+            }
+        }
+        // Depth is internally locked to the thread height.
+        threadParamVals[9] = threadParamVals[8];
+        bool depthQueued = false;
+        auto QueueDepthSync = [&](double valueMm) {
+            threadParamVals[9] = valueMm;
+            computedValues.push_back({ group.h, 9, valueMm });
+            depthQueued = true;
+        };
+
+        for(int paramIndex = 6; paramIndex <= 15; paramIndex++) {
+            if(paramIndex == 9) continue;
+
+            const std::string &expr = (paramIndex == 8 && group.ThreadParamExpression(8).empty())
+                                          ? group.ThreadParamExpression(9) // legacy fallback
+                                          : group.ThreadParamExpression(paramIndex);
+            if(expr.empty()) continue;
+            if(SK.param.FindByIdNoOops(group.h.param(paramIndex)) == nullptr) {
+                continue;
+            }
+
+            double expressionValue = 0;
+            std::string evaluateError;
+            if(!EvaluateExpressionWithUserParameters(expr, &userParamValues,
+                                                     &expressionValue, &evaluateError)) {
+                if(error) {
+                    *error = ssprintf("Thread group g%03x (%s): %s",
+                                      group.h.v, ThreadParameterName(paramIndex),
+                                      evaluateError.c_str());
+                }
+                return false;
+            }
+
+            double valueMm = expressionValue * MmPerUnit();
+            if(!ValidateThreadParameterMmValue(paramIndex, valueMm, error)) {
+                if(error) {
+                    std::string validationError = *error;
+                    *error = ssprintf("Thread group g%03x: %s",
+                                      group.h.v, validationError.c_str());
+                }
+                return false;
+            }
+
+            threadParamVals[paramIndex] = valueMm;
+            computedValues.push_back({ group.h, paramIndex, valueMm });
+            if(paramIndex == 8) {
+                QueueDepthSync(valueMm);
+            }
+        }
+
+        if(!depthQueued && fabs(threadParamVals[9] - threadParamVals[8]) > LENGTH_EPS) {
+            QueueDepthSync(threadParamVals[8]);
+        }
+
+        if(threadParamVals[8] >= (threadParamVals[6] * 0.5) - LENGTH_EPS) {
+            if(error) {
+                *error = ssprintf("Thread group g%03x: thread height must be smaller than "
+                                  "half of thread diameter", group.h.v);
+            }
+            return false;
+        }
+
+        if(threadParamVals[13] > LENGTH_EPS) {
+            if(threadParamVals[12] <= LENGTH_EPS) {
+                if(error) {
+                    *error = ssprintf("Thread group g%03x: cap top diameter must be positive "
+                                      "when cap depth is nonzero", group.h.v);
+                }
+                return false;
+            }
+            if(threadParamVals[14] <= LENGTH_EPS) {
+                if(error) {
+                    *error = ssprintf("Thread group g%03x: cap bottom diameter must be positive "
+                                      "when cap depth is nonzero", group.h.v);
+                }
+                return false;
+            }
+            if(threadParamVals[14] >= threadParamVals[12] - LENGTH_EPS) {
+                if(error) {
+                    *error = ssprintf("Thread group g%03x: cap bottom diameter must be smaller "
+                                      "than cap top diameter", group.h.v);
+                }
+                return false;
+            }
+        }
+
+        if(threadParamVals[15] > LENGTH_EPS) {
+            if(group.meshCombine == Group::CombineAs::DIFFERENCE) {
+                if(error) {
+                    *error = ssprintf("Thread group g%03x: hollow core is only available for "
+                                      "male threads", group.h.v);
+                }
+                return false;
+            }
+            if(threadParamVals[11] > LENGTH_EPS) {
+                if(error) {
+                    *error = ssprintf("Thread group g%03x: hollow core requires tip to be "
+                                      "disabled", group.h.v);
+                }
+                return false;
+            }
+
+            double nominalRadius = threadParamVals[6] * 0.5;
+            double coreRadius = nominalRadius - threadParamVals[9];
+            if(coreRadius <= LENGTH_EPS) {
+                if(error) {
+                    *error = ssprintf("Thread group g%03x: thread core radius must be positive "
+                                      "to enable hollow core", group.h.v);
+                }
+                return false;
+            }
+            if(threadParamVals[15] >= coreRadius - LENGTH_EPS) {
+                if(error) {
+                    *error = ssprintf("Thread group g%03x: hollow wall thickness must be "
+                                      "smaller than thread core radius", group.h.v);
+                }
+                return false;
+            }
+        }
+    }
+
+    if(apply) {
+        for(const PendingValue &entry : computedValues) {
+            if(Param *p = SK.param.FindByIdNoOops(entry.group.param(entry.paramIndex))) {
+                p->val = entry.valueMm;
+            }
+        }
+    }
+
+    return true;
+}
+
 double SolveSpaceUI::ExprToMm(Expr *e) {
     return (e->Eval()) * MmPerUnit();
 }
@@ -1130,6 +1534,7 @@ PACKAGE_VERSION, 2026);
 
 void SolveSpaceUI::Clear() {
     sys.Clear();
+    userParameters.clear();
     for(int i = 0; i < MAX_UNDO; i++) {
         if(i < undo.cnt) undo.d[i].Clear();
         if(i < redo.cnt) redo.d[i].Clear();

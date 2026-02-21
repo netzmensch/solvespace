@@ -7,6 +7,7 @@
 // Copyright 2008-2013 Jonathan Westhues.
 //-----------------------------------------------------------------------------
 #include "solvespace.h"
+#include <cctype>
 
 namespace SolveSpace {
 
@@ -647,6 +648,7 @@ public:
 
     std::string::const_iterator it, end;
     std::vector<Token> stack;
+    const ExprVariableResolver *resolver = nullptr;
 
     char ReadChar();
     char PeekChar();
@@ -663,7 +665,8 @@ public:
     bool Reduce(std::string *error);
     bool Parse(std::string *error, size_t reduceUntil = 0);
 
-    static Expr *Parse(const std::string &input, std::string *error);
+    static Expr *Parse(const std::string &input, std::string *error,
+                       const ExprVariableResolver *resolver = nullptr);
 };
 
 ExprParser::Token ExprParser::Token::From(TokenType type, Expr *expr) {
@@ -697,7 +700,7 @@ std::string ExprParser::ReadWord() {
     std::string s;
 
     while(char c = PeekChar()) {
-        if(!isalnum(c)) break;
+        if(!isalnum((unsigned char)c) && c != '_') break;
         s.push_back(ReadChar());
     }
 
@@ -706,7 +709,7 @@ std::string ExprParser::ReadWord() {
 
 void ExprParser::SkipSpace() {
     while(char c = PeekChar()) {
-        if(!isspace(c)) break;
+        if(!isspace((unsigned char)c)) break;
         ReadChar();
     }
 }
@@ -741,10 +744,11 @@ ExprParser::Token ExprParser::Lex(std::string *error) {
 
     Token t = Token::From();
     char c = PeekChar();
-    if(isupper(c)) {
+    if(isupper((unsigned char)c)) {
         std::string n = ReadWord();
         t = Token::From(TokenType::OPERAND, Expr::Op::VARIABLE);
-    } else if(isalpha(c)) {
+    } else if(isalpha((unsigned char)c) || (c == '_' && resolver != nullptr)) {
+        double resolvedValue = 0;
         std::string s = ReadWord();
         if(s == "sqrt") {
             t = Token::From(TokenType::UNARY_OP, Expr::Op::SQRT);
@@ -761,12 +765,15 @@ ExprParser::Token ExprParser::Lex(std::string *error) {
         } else if(s == "pi") {
             t = Token::From(TokenType::OPERAND, Expr::Op::CONSTANT);
             t.expr->v = PI;
+        } else if(resolver && (*resolver)(s, &resolvedValue)) {
+            t = Token::From(TokenType::OPERAND, Expr::Op::CONSTANT);
+            t.expr->v = resolvedValue;
         } else {
             *error = "'" + s + "' is not a valid variable, function or constant";
         }
-    } else if(isdigit(c) || c == '.') {
+    } else if(isdigit((unsigned char)c) || c == '.') {
         return LexNumber(error);
-    } else if(ispunct(c)) {
+    } else if(ispunct((unsigned char)c)) {
         ReadChar();
         if(c == '+') {
             t = Token::From(TokenType::BINARY_OP, Expr::Op::PLUS);
@@ -932,10 +939,12 @@ bool ExprParser::Parse(std::string *error, size_t reduceUntil) {
     return true;
 }
 
-Expr *ExprParser::Parse(const std::string &input, std::string *error) {
+Expr *ExprParser::Parse(const std::string &input, std::string *error,
+                        const ExprVariableResolver *resolver) {
     ExprParser parser;
     parser.it  = input.cbegin();
     parser.end = input.cend();
+    parser.resolver = resolver;
     if(!parser.Parse(error)) return NULL;
 
     Token r = parser.PopOperand(error);
@@ -943,13 +952,15 @@ Expr *ExprParser::Parse(const std::string &input, std::string *error) {
     return r.expr;
 }
 
-Expr *Expr::Parse(const std::string &input, std::string *error) {
-    return ExprParser::Parse(input, error);
+Expr *Expr::Parse(const std::string &input, std::string *error,
+                  const ExprVariableResolver *resolver) {
+    return ExprParser::Parse(input, error, resolver);
 }
 
-Expr *Expr::From(const std::string &input, bool popUpError) {
+Expr *Expr::From(const std::string &input, bool popUpError,
+                 const ExprVariableResolver *resolver) {
     std::string error;
-    Expr *e = ExprParser::Parse(input, &error);
+    Expr *e = ExprParser::Parse(input, &error, resolver);
     if(!e) {
         dbp("Parse/lex error: %s", error.c_str());
         if(popUpError) {

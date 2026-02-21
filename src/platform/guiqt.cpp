@@ -909,6 +909,10 @@ public:
         view->stopEditing();
     }
 
+    void SetEditorSuggestions(const std::vector<std::string> &suggestions) override {
+        // Not implemented for Qt editor.
+    }
+
     void SetScrollbarVisible(bool visible) override {
         //printf("Scroll vis %d\n", int(visible));
         if (scrollBar)

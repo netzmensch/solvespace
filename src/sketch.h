@@ -9,6 +9,7 @@
 #define SOLVESPACE_SKETCH_H
 
 #include <cstdint>
+#include <array>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -184,6 +185,7 @@ public:
         LATHE                         = 5101,
         REVOLVE                       = 5102,
         HELIX                         = 5103,
+        THREAD                        = 5104,
         ROTATE                        = 5200,
         TRANSLATE                     = 5201,
         LINKED                        = 5300
@@ -208,6 +210,7 @@ public:
     double      valA;
     double      valB;
     double      valC;
+    std::array<std::string, 10> threadParamExpr;
     RgbaColor   color;
 
     struct {
@@ -332,6 +335,14 @@ public:
     size_t GetNumConstraints();
     Vector ExtrusionGetVector();
     void ExtrusionForceVectorTo(const Vector &v);
+    std::string &ThreadParamExpression(int paramIndex) {
+        ssassert(paramIndex >= 6 && paramIndex <= 15, "Invalid thread parameter index");
+        return threadParamExpr[paramIndex - 6];
+    }
+    const std::string &ThreadParamExpression(int paramIndex) const {
+        ssassert(paramIndex >= 6 && paramIndex <= 15, "Invalid thread parameter index");
+        return threadParamExpr[paramIndex - 6];
+    }
 
     // Assembling the curves into loops, and into a piecewise linear polygon
     // at the same time.
@@ -705,6 +716,8 @@ public:
 
     // These are the parameters for the constraint.
     double      valA;
+    std::string valAExpr;
+    bool        valAExprNegate;
     hParam      valP;
     hEntity     ptA;
     hEntity     ptB;
@@ -720,7 +733,9 @@ public:
 
     bool Equals(const ConstraintBase &c) const {
         return type == c.type && group == c.group && workplane == c.workplane &&
-            valA == c.valA && valP == c.valP && ptA == c.ptA && ptB == c.ptB &&
+            valA == c.valA && valAExpr == c.valAExpr &&
+            valAExprNegate == c.valAExprNegate &&
+            valP == c.valP && ptA == c.ptA && ptB == c.ptB &&
             entityA == c.entityA && entityB == c.entityB &&
             entityC == c.entityC && entityD == c.entityD &&
             other == c.other && other2 == c.other2 && reference == c.reference &&
