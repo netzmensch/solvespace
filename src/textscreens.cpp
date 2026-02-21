@@ -549,10 +549,10 @@ void TextWindow::ScreenChangeThreadParameter(int link, uint32_t v) {
         double value = SK.GetParam(g->h.param(paramIndex))->val / SS.MmPerUnit();
         editValue = ssprintf("%.8f", value);
     }
-    SS.TW.ShowEditControl(3, editValue);
     if(SS.TW.window) {
         SS.TW.window->SetEditorSuggestions(BuildUserParameterSuggestions());
     }
+    SS.TW.ShowEditControl(3, editValue);
     SS.TW.edit.meaning = Edit::THREAD_PARAMETER;
     SS.TW.edit.group.v = g->h.v;
     SS.TW.edit.i = paramIndex;
