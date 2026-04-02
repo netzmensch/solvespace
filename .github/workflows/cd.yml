@@ -315,10 +315,10 @@ jobs:
         set -euo pipefail
 
         for required in \
-          windows/solvespace.exe \
-          windows_single_core/solvespace_single_core.exe \
-          windows_x64/solvespace_x64.exe \
+          windows_single_core_x86/solvespace_single_core_x86.exe \
+          windows_x86/solvespace_x86.exe \
           windows_single_core_x64/solvespace_single_core_x64.exe \
+          windows_x64/solvespace_x64.exe \
           macos/SolveSpaceNitro.dmg; do
           if [[ ! -f "${required}" ]]; then
             echo "Missing release artifact: ${required}" >&2
@@ -329,8 +329,8 @@ jobs:
         tmpdir="$(mktemp -d)"
         trap 'rm -rf "${tmpdir}"' EXIT
 
-        cp windows/solvespace.exe "${tmpdir}/SolveSpace-${LABEL}.exe"
-        cp windows_single_core/solvespace_single_core.exe "${tmpdir}/SolveSpace-${LABEL}_single_core.exe"
+        cp windows_x86/solvespace_x86.exe "${tmpdir}/SolveSpace-${LABEL}.exe"
+        cp windows_single_core_x86/solvespace_single_core_x86.exe "${tmpdir}/SolveSpace-${LABEL}_single_core.exe"
         cp windows_x64/solvespace_x64.exe "${tmpdir}/SolveSpace-${LABEL}_x64.exe"
         cp windows_single_core_x64/solvespace_single_core_x64.exe "${tmpdir}/SolveSpace-${LABEL}_single_core_x64.exe"
         cp macos/SolveSpaceNitro.dmg "${tmpdir}/SolveSpace-${LABEL}.dmg"
