@@ -28,7 +28,7 @@ jobs:
       tag_name: ${{ steps.detect.outputs.tag_name }}
       label: ${{ steps.detect.outputs.label }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         fetch-depth: 0
     - name: Detect and prepare Nitro release
@@ -287,7 +287,7 @@ jobs:
       contents: write
     steps:
     - name: Download All Workflow Artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
     - name: Ensure release exists
       if: github.event_name == 'push'
       shell: bash
